@@ -7,9 +7,11 @@ class Value:
         self.prev=set(children)
     
     def __repr__(self):
-        return "Value("+str(self.data)+"), grad("+self.grad+")"
+        return "Value("+str(self.data)+"), grad("+str(self.grad)+")"
     
     def __add__(self, other):
+        if not isinstance(other, Value):
+            other=Value(other)
         new=Value(self.data+other.data, (self, other))
         
         def _backward():
@@ -19,15 +21,11 @@ class Value:
         return new
     
     def __sub__(self, other):
-        new=Value(self.data+(-other.data), (self, other))
-        
-        def _backward():
-            self.grad+=new.grad
-            other.grad-=new.grad
-        new._backward=_backward
-        return new
+        return self+(-other)
 
     def __mul__(self, other):
+        if not isinstance(other, Value):
+            other=Value(other)
         new=Value(self.data*other.data, (self, other))
         
         def _backward():
@@ -37,7 +35,7 @@ class Value:
         return new
 
     def tanh(self):
-        new=Value((pow(math.e, self.data*2)-1)/(pow(math.e, self.data*2)+1), (self))
+        new=Value((pow(math.e, self.data*2)-1)/(pow(math.e, self.data*2)+1))
 
         def _backward():
             self.grad+=(1-new.data*new.data)*new.grad
@@ -46,6 +44,12 @@ class Value:
     
     def __neg__(self):
         return Value(-self.data)
+    
+    def __radd__(self, other):
+        return self+other
+    
+    def __rmul__(self, other):
+        return self*other
 
     def backward(self):
         # topological sort
