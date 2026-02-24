@@ -19,9 +19,6 @@ class Value:
             other.grad+=new.grad
         new._backward=_backward
         return new
-    
-    def __sub__(self, other):
-        return self+(-other)
 
     def __mul__(self, other):
         if not isinstance(other, Value):
@@ -33,14 +30,25 @@ class Value:
             other.grad+=self.data*new.grad
         new._backward=_backward
         return new
+    
+    def __pow__(self, other):
+        new=Value(self.data**other, (self,))
+        
+        def _backward():
+            self.grad+=other*self.data**(other-1)*new.grad
+        new._backward=_backward
+        return new
 
     def tanh(self):
-        new=Value((pow(math.e, self.data*2)-1)/(pow(math.e, self.data*2)+1))
+        new=Value((pow(math.e, self.data*2)-1)/(pow(math.e, self.data*2)+1), (self,))
 
         def _backward():
             self.grad+=(1-new.data*new.data)*new.grad
         new._backward=_backward
         return new
+    
+    def __sub__(self, other):
+        return self+(-other)
     
     def __neg__(self):
         return Value(-self.data)
@@ -67,14 +75,3 @@ class Value:
         self.grad = 1
         for v in reversed(topo):
             v._backward()
-
-a=Value(3)
-b=Value(4)
-c=Value(5)
-d=Value(7)
-e=Value(4)
-f=Value(2)
-
-g=((a+b)*(c-d)+e)*f
-g.backward()
-print(d.grad, g.data)
