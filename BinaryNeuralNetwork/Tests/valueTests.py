@@ -1,4 +1,5 @@
 import torch
+import math
 from Engine.value import Value
 
 #Easy test, 1 variable, basic arithmetics
@@ -41,6 +42,38 @@ def mediumTest():
 
     return startTest==startTrue and endTest.data==endTrue.data.item()
 
+#Hard test, 6 vars, more complicated math
+def hardTest():
+    x=Value(4.1)
+    y=Value(3.8)
+    z=Value(1.3)
+    a=Value(-5.6)
+    b=Value(2.5)
+    c=Value(10.5)
+    f=((x*y-a)*(b*(c-z/(a+c))))-4/a+5*pow(a, 6)/pow(z, 4)-3*a*3*(x-a*y+b/c*z)
+    f.backward()
+    endTest=f
+    startTest=[x.grad, y.grad, z.grad, a.grad, b.grad, c.grad]
+    endTest=Value(math.floor(endTest.data*100)/100)
+
+    x=torch.tensor([4.1]).double()
+    y=torch.tensor([3.8]).double()
+    z=torch.tensor([1.3]).double()
+    a=torch.tensor([-5.6]).double()
+    b=torch.tensor([2.5]).double()
+    c=torch.tensor([10.5]).double()
+    x.requires_grad=y.requires_grad=z.requires_grad=a.requires_grad=b.requires_grad=c.requires_grad=True
+    f=((x*y-a)*(b*(c-z/(a+c))))-4/a+5*pow(a, 6)/pow(z, 4)-3*a*3*(x-a*y+b/c*z)
+    f.backward()
+    endTrue=f
+    startTrue=[x.grad.item(), y.grad.item(), z.grad.item(), a.grad.item(), b.grad.item(), c.grad.item()]
+    endTrue=math.floor(endTrue.data.item()*100)/100
+
+
+    difference=[abs(test-true) for test, true in zip(startTest, startTrue)]
+    return [di<5e-1 for di in difference] and endTest.data==endTrue
+    #Adjustment for rounding errors
+
 #Debugging
 #Bug with subtraction
 def debugTest():
@@ -60,7 +93,7 @@ def debugTest():
     return startTest==startTrue and endTest.data==endTrue.data.item()
 
 def allTests():
-    if easyTest()==mediumTest()==debugTest()==True:
+    if easyTest()==mediumTest()==debugTest()==hardTest()==True:
         print("All tests passed")
     else:
         print("Something's wrong")

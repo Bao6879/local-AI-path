@@ -1,7 +1,8 @@
 import math
+import torch
 class Value:
     def __init__(self, data, children=()):
-        self.data=data 
+        self.data=data
         self.grad=0 #how much changing this would affect the final result
         self._backward=lambda:None
         self.prev=set(children)
