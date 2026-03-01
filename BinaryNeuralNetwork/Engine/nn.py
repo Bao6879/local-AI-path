@@ -1,5 +1,5 @@
 import random
-from value import Value
+from Engine.value import Value
 class Neuron():
     def __init__(self, inputs):
         self.weights=[Value(random.uniform(-1, 1)) for i in range(inputs)]
@@ -42,24 +42,3 @@ class MultiLayer():
     def zeroGrad(self):
         for p in self.params():
             p.grad=0
-
-xs = [
-  [2.0, 3.0, -1.0],
-  [3.0, -1.0, 0.5],
-  [0.5, 1.0, 1.0],
-  [1.0, 1.0, -1.0],
-]
-ys = [1.0, -1.0, -1.0, 1.0]
-n = MultiLayer(3, [20, 20, 1])
-for k in range(100):
-  
-  ypred = [n(x) for x in xs]
-  loss = sum((yout - ygt)**2 for ygt, yout in zip(ys, ypred))
-  
-  n.zeroGrad()
-  loss.backward()
-  
-  for p in n.params():
-    p.data += -0.1 * p.grad
-  
-  print(k, loss.data)
