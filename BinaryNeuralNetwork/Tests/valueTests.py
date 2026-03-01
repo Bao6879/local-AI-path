@@ -75,7 +75,6 @@ def hardTest():
     #Adjustment for rounding errors
 
 #Debugging
-#Bug with subtraction
 def debugTest():
     x=Value(2)
     f=10-x
