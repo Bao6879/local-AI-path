@@ -50,10 +50,10 @@ tsY=torch.tensor(tsY)
 #Neural net
 g=torch.Generator().manual_seed(seed)
 C=torch.randn((27, features), generator=g)
-w1=torch.randn((blockSize*features, hiddenLayerNeurons), generator=g) #Hidden layer
-b1=torch.randn((hiddenLayerNeurons), generator=g)
-w2=torch.randn((hiddenLayerNeurons, 27), generator=g)
-b2=torch.randn((27), generator=g)
+w1=torch.randn((blockSize*features, hiddenLayerNeurons), generator=g)*0.1 #Hidden layer
+b1=torch.randn((hiddenLayerNeurons), generator=g)*0.01
+w2=torch.randn((hiddenLayerNeurons, 27), generator=g)*0.01
+b2=torch.randn((27), generator=g)*0
 
 parameters=[C, w1, b1, w2, b2]
 for p in parameters:
