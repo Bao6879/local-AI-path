@@ -26,7 +26,7 @@ random.shuffle(names)
 trX, trY=[], []
 tsX, tsY=[], []
 idx=0
-for w in names[:5]:
+for w in names:
 
     ctx=[0]*blockSize
     for ch in w+'.':
@@ -58,9 +58,9 @@ parameters=[C, w1, b1, w2, b2]
 for p in parameters:
     p.requires_grad=True
 
-for i in range(200000):
+for i in range(10000):
     #Batch
-    ix=torch.randint(0, len(trX[0]), (batchSize, ))
+    ix=torch.randint(0, trX.shape[0], (batchSize, ))
 
     #Forward pass
     emb=C[trX[ix]]
@@ -80,6 +80,8 @@ for i in range(200000):
 
     for p in parameters:
         p.data+=-lr*p.grad
+    if i%100==0:
+        print(i, loss.data.item())
 
 #Final training loss
 emb=C[trX]
@@ -89,8 +91,9 @@ trLoss=F.cross_entropy(end, trY)
 print(f'Training loss: {trLoss.data}')
 
 #Test loss
-emb=C[trX]
-h=torch.tanh(emb.view(len(trX), blockSize*features)@w1+b1) #Output of hidden layer
+emb=C[tsX]
+h=torch.tanh(emb.view(len(tsX), blockSize*features)@w1+b1) #Output of hidden layer
 end=h@w2+b2 #End predictions
-tsLoss=F.cross_entropy(end, trY) 
+tsLoss=F.cross_entropy(end, tsY) 
 print(f'Test loss: {tsLoss.data}')
+#Running time: 
