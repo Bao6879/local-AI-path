@@ -17,7 +17,7 @@ features=10
 random.seed(3108)
 trainSplitSize=0.8
 hiddenLayerNeurons=200
-learningRates=[(0, 0.1), (50000, 0.05), (100000, 0.01), (1e9, 0.001)] #Learning rate decay
+learningRates=[(0, 0.1), (25000, 0.05), (50000, 0.01), (100000, 0.001), (1e9, 0.001)] #Learning rate decay
 batchSize=64
 
 #Set up
@@ -58,7 +58,7 @@ parameters=[C, w1, b1, w2, b2]
 for p in parameters:
     p.requires_grad=True
 
-for i in range(10000):
+for i in range(200000):
     #Batch
     ix=torch.randint(0, trX.shape[0], (batchSize, ))
 
@@ -80,20 +80,20 @@ for i in range(10000):
 
     for p in parameters:
         p.data+=-lr*p.grad
-    if i%100==0:
+    if (i+1)%10000==0:
         print(i, loss.data.item())
 
 #Final training loss
 emb=C[trX]
-h=torch.tanh(emb.view(len(trX), blockSize*features)@w1+b1) #Output of hidden layer
-end=h@w2+b2 #End predictions
+h=torch.tanh(emb.view(len(trX), blockSize*features)@w1+b1)
+end=h@w2+b2
 trLoss=F.cross_entropy(end, trY) 
 print(f'Training loss: {trLoss.data}')
 
 #Test loss
 emb=C[tsX]
-h=torch.tanh(emb.view(len(tsX), blockSize*features)@w1+b1) #Output of hidden layer
-end=h@w2+b2 #End predictions
+h=torch.tanh(emb.view(len(tsX), blockSize*features)@w1+b1)
+end=h@w2+b2
 tsLoss=F.cross_entropy(end, tsY) 
 print(f'Test loss: {tsLoss.data}')
 #Running time: 
