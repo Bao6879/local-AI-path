@@ -4,12 +4,12 @@ import torch.nn.functional as F
 
 names=open('names.txt', 'r').read().splitlines()
 
-iToC={0: '.'}
+cToI={'.': 0}
 idx=0
 for i in range(97, 123):
-    iToC[chr(i)]=idx
+    cToI[chr(i)]=idx
     idx+=1
-cToI={s:i for i, s in iToC}
+iToC={i:s for s,i in cToI.items()}
 
 #Settings:
 blockSize=3
@@ -30,13 +30,14 @@ for w in names[:5]:
 
     ctx=[0]*blockSize
     for ch in w+'.':
+        tmp=cToI[ch]
         if idx<=len(names)*trainSplitSize:
             trX.append(ctx)
-            trY.append(cToI[ch])
+            trY.append(tmp)
         else:
             tsX.append(ctx)
-            tsY.append(cToI[ch])
-        ctx=ctx[1:]+ch
+            tsY.append(tmp)
+        ctx=ctx[1:]+[tmp]
     
     idx+=1
     
@@ -57,7 +58,7 @@ parameters=[C, w1, b1, w2, b2]
 for p in parameters:
     p.requires_grad=True
 
-for i in range(100):
+for i in range(200000):
     #Batch
     ix=torch.randint(0, len(trX[0]), (batchSize, ))
 
