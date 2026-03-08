@@ -14,7 +14,8 @@ iToC={i:s for s,i in cToI.items()}
 #Settings:
 blockSize=3
 features=10
-random.seed(3108)
+seed=3108
+random.seed(seed)
 trainSplitSize=0.8
 hiddenLayerNeurons=200
 learningRates=[(0, 0.1), (25000, 0.05), (50000, 0.01), (100000, 0.001), (1e9, 0.001)] #Learning rate decay
@@ -47,7 +48,7 @@ tsX=torch.tensor(tsX)
 tsY=torch.tensor(tsY)
 
 #Neural net
-g=torch.Generator().manual_seed(3108)
+g=torch.Generator().manual_seed(seed)
 C=torch.randn((27, features), generator=g)
 w1=torch.randn((blockSize*features, hiddenLayerNeurons), generator=g) #Hidden layer
 b1=torch.randn((hiddenLayerNeurons), generator=g)
@@ -80,7 +81,7 @@ for i in range(200000):
 
     for p in parameters:
         p.data+=-lr*p.grad
-    if (i+1)%10000==0:
+    if (i+1)%100000==0:
         print(i, loss.data.item())
 
 #Final training loss
@@ -96,4 +97,21 @@ h=torch.tanh(emb.view(len(tsX), blockSize*features)@w1+b1)
 end=h@w2+b2
 tsLoss=F.cross_entropy(end, tsY) 
 print(f'Test loss: {tsLoss.data}')
-#Running time: 
+
+#Sampling
+g=torch.Generator().manual_seed(10)
+for _ in range(20):
+    s=""
+    ctx=[0]*blockSize
+    while True:
+        emb=C[torch.tensor(ctx)]
+        h=torch.tanh(emb.view(1, blockSize*features)@w1+b1)
+        end=h@w2+b2
+        probs=F.softmax(end, dim=1)
+        ix=torch.multinomial(probs, num_samples=1, generator=g).item()
+        ctx=ctx[1:]+[ix]
+        s+=iToC[ix]
+        if ix==0:
+            break
+    
+    print(s)
