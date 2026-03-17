@@ -55,7 +55,10 @@ b1=torch.randn((hiddenLayerNeurons), generator=g)*0.01
 w2=torch.randn((hiddenLayerNeurons, 27), generator=g)*0.01
 b2=torch.randn((27), generator=g)*0
 
-parameters=[C, w1, b1, w2, b2]
+bngain=torch.ones((1, hiddenLayerNeurons))
+bnbias=torch.zeros((1, hiddenLayerNeurons))
+
+parameters=[C, w1, b1, w2, b2, bngain, bnbias]
 for p in parameters:
     p.requires_grad=True
 
@@ -65,7 +68,8 @@ for i in range(200000):
 
     #Forward pass
     emb=C[trX[ix]]
-    h=torch.tanh(emb.view(batchSize, blockSize*features)@w1+b1) #Output of hidden layer
+    h=emb.view(batchSize, blockSize*features)@w1+b1 #linear layer
+    h=torch.tanh(bngain*(h-h.mean(0, keepdim=True))/(h.std(0, keepdim=True))+bnbias) #batch normalization + output of hidden layer
     end=h@w2+b2 #End predictions
     loss=F.cross_entropy(end, trY[ix]) 
 
@@ -86,14 +90,16 @@ for i in range(200000):
 
 #Final training loss
 emb=C[trX]
-h=torch.tanh(emb.view(len(trX), blockSize*features)@w1+b1)
+h=emb.view(batchSize, blockSize*features)@w1+b1
+h=torch.tanh(bngain*(h-h.mean(0, keepdim=True))/(h.std(0, keepdim=True))+bnbias)
 end=h@w2+b2
 trLoss=F.cross_entropy(end, trY) 
 print(f'Training loss: {trLoss.data}')
 
 #Test loss
 emb=C[tsX]
-h=torch.tanh(emb.view(len(tsX), blockSize*features)@w1+b1)
+h=emb.view(batchSize, blockSize*features)@w1+b1
+h=torch.tanh(bngain*(h-h.mean(0, keepdim=True))/(h.std(0, keepdim=True))+bnbias)
 end=h@w2+b2
 tsLoss=F.cross_entropy(end, tsY) 
 print(f'Test loss: {tsLoss.data}')
