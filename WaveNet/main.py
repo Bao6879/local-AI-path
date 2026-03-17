@@ -75,6 +75,34 @@ class Linear:
     def params(self):
         return [self.weight]+([] if self.self.bias is None else [self.bias])
 
+class BNorm:
+    def __init__(self, dim, eps=1e-5, momentum=0.1):
+        self.eps=eps
+        self.momentum=momentum
+        self.training=True
+
+        self.gamma=torch.ones(dim)
+        self.beta=torch.zeros(dim)
+
+        self.runMean=torch.zeros(dim)
+        self.runVar=torch.ones(dim)
+    def __call__(self, x):
+        if self.training:
+            xmean=x.mean(0, keepdim=True)
+            xvar=x.var(0, keepdim=True)
+        else:
+            xmean=self.runMean
+            xvar=self.runVar
+        x=(x-xmean)/torch.sqrt(xvar+self.eps)
+        self.out=self.gamma*x+self.beta
+        if self.training:
+            with torch.no_grad():
+                self.runMean=(1-self.momentum)*self.runMean+self.momentum*xmean
+                self.runVar=(1-self.momentum)*self.runVar+self.momentum*xvar
+        return self.out
+    def params(self):
+        return [self.gamma, self.beta]
+
 class Tanh:
     def __call__(self, x):
         self.out=torch.tanh(x)
