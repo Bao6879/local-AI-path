@@ -5,7 +5,7 @@ import torch.nn.functional as F
 names=open('names.txt', 'r').read().splitlines()
 
 cToI={'.': 0}
-idx=0
+idx=1
 for i in range(97, 123):
     cToI[chr(i)]=idx
     idx+=1
@@ -136,7 +136,11 @@ for i in range(2000000):
     if (i+1)%100000==0:
         print(i, loss.data.item())
     break
-    
+
+#Eval time
+for layer in layers:
+    layer.training=False
+
 #Final training loss
 emb=C[trX]
 h=emb.view(emb.shape[0], -1)
@@ -160,7 +164,6 @@ for _ in range(20):
     ctx=[0]*blockSize
     while True:
         emb=C[torch.tensor([ctx])]
-        print(emb.shape)
         x=emb.view(emb.shape[0], -1)
         for layer in layers:
             x=layer(x)
