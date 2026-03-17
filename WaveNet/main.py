@@ -75,6 +75,13 @@ class Linear:
     def params(self):
         return [self.weight]+([] if self.self.bias is None else [self.bias])
 
+class Tanh:
+    def __call__(self, x):
+        self.out=torch.tanh(x)
+        return self.out
+    def params(self):
+        return []
+
 def flatten(x):
     B, T, C=x.shape
     x=x.view(B, T//2, C*2)
