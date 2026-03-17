@@ -62,6 +62,19 @@ parameters=[C, w1, w2, bngain, bnbias]
 for p in parameters:
     p.requires_grad=True
 
+#Torchifying NN
+class Linear:
+    def __init__(self, nin, nout, bias=True):
+        self.weight=torch.randn((nin, nout), generator=g)
+        self.bias=torch.zeros(nout) if bias else None
+    def __call__(self, x):
+        self.out=x@self.weight
+        if self.bias is not None:
+            self.out+=self.bias
+        return self.out
+    def params(self):
+        return [self.weight]+([] if self.self.bias is None else [self.bias])
+
 def flatten(x):
     B, T, C=x.shape
     x=x.view(B, T//2, C*2)
