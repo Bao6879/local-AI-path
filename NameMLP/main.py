@@ -18,7 +18,7 @@ seed=3108
 random.seed(seed)
 trainSplitSize=0.8
 hiddenLayerNeurons=200
-learningRates=[(0, 0.1), (75000, 0.05), (200000, 0.01), (500000, 0.005), (1000000, 0.001), (1e9, 0.0001)] #Learning rate decay
+learningRates=[(0, 0.1), (25000, 0.05), (50000, 0.01), (100000, 0.005), (1000000, 0.001), (1e9, 0.0001)] #Learning rate decay
 batchSize=64
 
 #Set up
@@ -110,7 +110,7 @@ parameters=[C]+[p for layer in layers for p in layer.params()]
 for p in parameters:
     p.requires_grad=True
 
-for i in range(2000000):
+for i in range(100000):
     #Batch
     ix=torch.randint(0, trX.shape[0], (batchSize, ))
 
@@ -135,7 +135,6 @@ for i in range(2000000):
         p.data+=-lr*p.grad
     if (i+1)%100000==0:
         print(i, loss.data.item())
-    break
 
 #Eval time
 for layer in layers:
