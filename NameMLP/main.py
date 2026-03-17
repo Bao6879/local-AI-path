@@ -51,14 +51,14 @@ tsY=torch.tensor(tsY)
 g=torch.Generator().manual_seed(seed)
 C=torch.randn((27, features), generator=g)
 w1=torch.randn((blockSize*features, hiddenLayerNeurons), generator=g)*0.1 #Hidden layer
-b1=torch.randn((hiddenLayerNeurons), generator=g)*0.01
+#b1=torch.randn((hiddenLayerNeurons), generator=g)*0.01
 w2=torch.randn((hiddenLayerNeurons, 27), generator=g)*0.01
 b2=torch.randn((27), generator=g)*0
 
 bngain=torch.ones((1, hiddenLayerNeurons))
 bnbias=torch.zeros((1, hiddenLayerNeurons))
 
-parameters=[C, w1, b1, w2, b2, bngain, bnbias]
+parameters=[C, w1, w2, b2, bngain, bnbias]
 for p in parameters:
     p.requires_grad=True
 
@@ -68,7 +68,7 @@ for i in range(200000):
 
     #Forward pass
     emb=C[trX[ix]]
-    h=emb.view(batchSize, blockSize*features)@w1+b1 #linear layer
+    h=emb.view(batchSize, blockSize*features)@w1 #linear layer
     h=torch.tanh(bngain*(h-h.mean(0, keepdim=True))/(h.std(0, keepdim=True))+bnbias) #batch normalization + output of hidden layer
     end=h@w2+b2 #End predictions
     loss=F.cross_entropy(end, trY[ix]) 
@@ -88,18 +88,26 @@ for i in range(200000):
     if (i+1)%100000==0:
         print(i, loss.data.item())
 
+#Calibrate the batch norm at the end
+with torch.no_grad():
+    emb=C[trX]
+    h=emb.view(emb.shape[0], blockSize*features)@w1
+    bnmean=h.mean(0, keepdim=True)
+    bnstd=h.std(0, keepdim=True)
+
+
 #Final training loss
 emb=C[trX]
-h=emb.view(batchSize, blockSize*features)@w1+b1
-h=torch.tanh(bngain*(h-h.mean(0, keepdim=True))/(h.std(0, keepdim=True))+bnbias)
+h=emb.view(emb.shape[0], blockSize*features)@w1
+h=torch.tanh(bngain*(h-bnmean)/bnstd+bnbias)
 end=h@w2+b2
 trLoss=F.cross_entropy(end, trY) 
 print(f'Training loss: {trLoss.data}')
 
 #Test loss
 emb=C[tsX]
-h=emb.view(batchSize, blockSize*features)@w1+b1
-h=torch.tanh(bngain*(h-h.mean(0, keepdim=True))/(h.std(0, keepdim=True))+bnbias)
+h=emb.view(emb.shape[0], blockSize*features)@w1
+h=torch.tanh(bngain*(h-h.mean(0, keepdim=True))/bnstd+bnbias)
 end=h@w2+b2
 tsLoss=F.cross_entropy(end, tsY) 
 print(f'Test loss: {tsLoss.data}')
@@ -111,7 +119,7 @@ for _ in range(20):
     ctx=[0]*blockSize
     while True:
         emb=C[torch.tensor(ctx)]
-        h=torch.tanh(emb.view(1, blockSize*features)@w1+b1)
+        h=torch.tanh(bngain*(emb.view(1, blockSize*features)@w1-bnmean)/bnstd+bnbias)
         end=h@w2+b2
         probs=F.softmax(end, dim=1)
         ix=torch.multinomial(probs, num_samples=1, generator=g).item()
