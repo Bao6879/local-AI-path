@@ -18,7 +18,7 @@ seed=3108
 random.seed(seed)
 trainSplitSize=0.8
 hiddenLayerNeurons=200
-learningRates=[(0, 0.1), (25000, 0.05), (50000, 0.01), (100000, 0.005), (1000000, 0.001), (1e9, 0.0001)] #Learning rate decay
+learningRates=[(0, 0.05), (25000, 0.01), (50000, 0.005), (100000, 0.0001), (1000000, 0.00001), (1e9, 0.0001)] #Learning rate decay
 batchSize=64
 
 #Set up
