@@ -12,7 +12,7 @@ for i in range(97, 123):
 iToC={i:s for s,i in cToI.items()}
 
 #Settings:
-blockSize=3
+blockSize=8
 features=10
 seed=3108
 random.seed(seed)
@@ -92,6 +92,16 @@ class BNorm:
     def params(self):
         return [self.gamma, self.beta]
 
+class Flatten: #Flatten consecutive feature vectors of 2 characters
+    def __call__(self, x):
+        B, T, C=x.shape
+        self.out=x.view(B, T//2, C*2)
+        if self.out.shape[1]==1:
+            self.out=self.out.squeeze(1) #Remove 1 if the second dim is just 1
+        return self.out
+    def params(self):
+        return []
+
 class Tanh:
     def __call__(self, x):
         self.out=torch.tanh(x)
@@ -100,11 +110,10 @@ class Tanh:
         return []
 
 #True MLP
-layers=[Linear(features*blockSize, hiddenLayerNeurons, bias=False), BNorm(hiddenLayerNeurons), Tanh(),
-        Linear(hiddenLayerNeurons, hiddenLayerNeurons, bias=False), BNorm(hiddenLayerNeurons), Tanh(),
-        Linear(hiddenLayerNeurons, hiddenLayerNeurons, bias=False), BNorm(hiddenLayerNeurons), Tanh(),
-        Linear(hiddenLayerNeurons, hiddenLayerNeurons, bias=False), BNorm(hiddenLayerNeurons), Tanh(),
-        Linear(hiddenLayerNeurons, 27, bias=False), BNorm(27)]
+layers=[Flatten(), Linear(features*2, hiddenLayerNeurons, bias=False), BNorm(hiddenLayerNeurons), Tanh(),
+        Flatten(), Linear(hiddenLayerNeurons*2, hiddenLayerNeurons, bias=False), BNorm(hiddenLayerNeurons), Tanh(),
+        Flatten(), Linear(hiddenLayerNeurons*2, hiddenLayerNeurons, bias=False), BNorm(hiddenLayerNeurons), Tanh(),
+        Linear(hiddenLayerNeurons, 27, bias=False)]
 
 parameters=[C]+[p for layer in layers for p in layer.params()]
 for p in parameters:
@@ -116,7 +125,7 @@ for i in range(100000):
 
     #Forward pass
     emb=C[trX[ix]]
-    x=emb.view(emb.shape[0], -1)
+    x=emb
     for layer in layers:
         x=layer(x)
     loss=F.cross_entropy(x, trY[ix]) 
@@ -135,6 +144,7 @@ for i in range(100000):
         p.data+=-lr*p.grad
     if (i+1)%100000==0:
         print(i, loss.data.item())
+    break
 
 #Eval time
 for layer in layers:
@@ -142,7 +152,7 @@ for layer in layers:
 
 #Final training loss
 emb=C[trX]
-h=emb.view(emb.shape[0], -1)
+h=emb
 for layer in layers:
     h=layer(h)
 trLoss=F.cross_entropy(h, trY) 
@@ -150,7 +160,7 @@ print(f'Training loss: {trLoss.data}')
 
 #Test loss
 emb=C[tsX]
-h=emb.view(emb.shape[0], -1)
+h=emb
 for layer in layers:
     h=layer(h)
 tsLoss=F.cross_entropy(h, tsY) 
@@ -163,7 +173,7 @@ for _ in range(20):
     ctx=[0]*blockSize
     while True:
         emb=C[torch.tensor([ctx])]
-        x=emb.view(emb.shape[0], -1)
+        x=emb
         for layer in layers:
             x=layer(x)
         probs=F.softmax(x, dim=1)
