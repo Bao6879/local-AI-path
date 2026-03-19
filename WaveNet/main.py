@@ -77,8 +77,12 @@ class BNorm:
         self.runVar=torch.ones(dim)
     def __call__(self, x):
         if self.training:
-            xmean=x.mean(0, keepdim=True)
-            xvar=x.var(0, keepdim=True)
+            if x.ndim==2:
+                dim=0
+            elif x.ndim==3:
+                dim=(0, 1)
+            xmean=x.mean(dim, keepdim=True)
+            xvar=x.var(dim, keepdim=True)
         else:
             xmean=self.runMean
             xvar=self.runVar
@@ -94,7 +98,7 @@ class BNorm:
 
 class Flatten: #Flatten consecutive feature vectors of 2 characters
     def __call__(self, x):
-        B, T, C=x.shape
+        B, T, C=x.shape #Batch size, block size, total features
         self.out=x.view(B, T//2, C*2)
         if self.out.shape[1]==1:
             self.out=self.out.squeeze(1) #Remove 1 if the second dim is just 1
@@ -142,9 +146,8 @@ for i in range(100000):
 
     for p in parameters:
         p.data+=-lr*p.grad
-    if (i+1)%100000==0:
+    if (i+1)%1000==0:
         print(i, loss.data.item())
-    break
 
 #Eval time
 for layer in layers:
