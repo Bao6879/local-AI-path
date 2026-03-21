@@ -13,7 +13,7 @@ iToC={i:c for i, c in enumerate(chars)}
 encode=lambda s: [cToI[c] for c in s] #Takes in a string -> turns to array of ints and vice versa
 
 decode=lambda a: ''.join([iToC[i] for i in a]) 
-data=torch.tensor(encode(text), dtype=torch.int) #Encoded dataset, stored in a tensor
+data=torch.tensor(encode(text), dtype=torch.long) #Encoded dataset, stored in a tensor
 tmp=int(0.9*len(data))
 trainData=data[:tmp] #Split of 9:1 train:test
 testData=data[tmp:]
@@ -21,9 +21,9 @@ testData=data[tmp:]
 #Settings
 batchSize=4 #At once, in parallel
 contextLength=8 #Up to this many characters for predictions
-featuresLength=12 #Features for each character
-numHeads=8 #Num heads*head size = feature length.
-headSize=16
+featuresLength=32 #Features for each character
+numHeads=4 #Num heads*head size = feature length.
+headSize=8
 maxIter=5000 #Number of epochs to run
 evalInterval=100 #Every interval, run full evaluation
 evalIters=100 #Iterations in evaluation
@@ -68,13 +68,13 @@ class FeedForward(nn.Module): #Simple MLP for thinking on the data
 class MultiHead(nn.Module): #Concat the results from multiple attention heads
     def __init__(self):
         super().__init__()
-        self.heads=nn.ModuleList([Head(headSize) for _ in range(numHeads)]) #Get multiple heads
+        self.heads=nn.ModuleList([Head() for _ in range(numHeads)]) #Get multiple heads
         self.proj=nn.Linear(featuresLength, featuresLength)
 
     def forward(self, x):
         out=torch.cat([h(x) for h in self.heads], dim=-1)
         out=self.proj(out)
-        return out;
+        return out
 
 class Head(nn.Module): #Head of self attention
     def __init__(self):
@@ -100,8 +100,8 @@ class Head(nn.Module): #Head of self attention
 class Block(nn.Module): #A transformer block
     def __init__(self):
         super().__init__()
-        self.sa=MultiHead(numHeads, headSize)
-        self.ffwd=FeedForward(featuresLength)
+        self.sa=MultiHead()
+        self.ffwd=FeedForward()
     def forward(self, x):
         x=x+self.sa(x)
         x=x+self.ffwd(x)
@@ -109,6 +109,7 @@ class Block(nn.Module): #A transformer block
 
 class Model(nn.Module):
     def __init__(self):
+        super().__init__()
         self.tokenEmbeddingTable=nn.Embedding(vocabSize, featuresLength) #Each character has features
         self.positionEmbeddingTable=nn.Embedding(contextLength, featuresLength) #Each position has features.
         self.blocks=nn.Sequential(Block(), Block(), Block())
@@ -156,7 +157,7 @@ optimizer=torch.optim.AdamW(model.parameters(), lr=learningRate)
 for iter in range(maxIter):
     if iter%evalInterval==0:
         losses=getCurrentLoss()
-        print(f'Step {iter}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}')
+        print(f"step {iter}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
 
     #Get a batch 
     xb, yb=getBatch('train')
@@ -166,6 +167,7 @@ for iter in range(maxIter):
     optimizer.zero_grad(set_to_none=True)
     loss.backward()
     optimizer.step()
+    break
 
 context = torch.zeros((1, 1), dtype=torch.long, device=device)
-print(decode(model.generate(context, max_new_tokens=2000)[0].tolist()))
+print(decode(model.generate(context, 20)[0].tolist()))
