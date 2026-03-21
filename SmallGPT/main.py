@@ -22,7 +22,7 @@ testData=data[tmp:]
 batchSize=4 #At once, in parallel
 contextLength=8 #Up to this many characters for predictions
 featuresLength=12 #Features for each character
-numHeads=8
+numHeads=8 #Num heads*head size = feature length.
 headSize=16
 maxIter=5000 #Number of epochs to run
 evalInterval=100 #Every interval, run full evaluation
@@ -55,6 +55,13 @@ with torch.no_grad():
         model.train() #Back to training mode
         return out
 
+class FeedForward(nn.Module): #Simple MLP for thinking on the data
+    def __init__(self):
+        super().__init__()
+        self.net=nn.Sequential(nn.Linear(featuresLength, featuresLength), nn.ReLU())
+    def forward(self, x):
+        return self.net(x)
+
 class MultiHead(nn.Module): #Concat the results from multiple attention heads
     def __init__(self):
         super().__init__()
@@ -84,11 +91,21 @@ class Head(nn.Module): #Head of self attention
         out=w@v
         return out
 
+class Block(nn.Module): #A transformer block
+    def __init__(self):
+        super().__init__()
+        self.sa=MultiHead(numHeads, headSize)
+        self.ffwd=FeedForward(featuresLength)
+    def forward(self, x):
+        x=self.sa(x)
+        x=self.ffwd(x)
+        return x
+
 class Model(nn.Module):
     def __init__(self):
         self.tokenEmbeddingTable=nn.Embedding(vocabSize, featuresLength) #Each character has features
         self.positionEmbeddingTable=nn.Embedding(contextLength, featuresLength) #Each position has features.
-        self.sa_head=MultiHead() #Self attention heads
+        self.blocks=nn.Sequential(Block(), Block(), Block())
         self.lm_head=nn.Linear(featuresLength, vocabSize) #Turns the embeddings (features) into logits of vocab size
     
     def forward(self, idx, targets=None):
@@ -97,7 +114,7 @@ class Model(nn.Module):
         tokenEmbed=self.tokenEmbeddingTable(idx) #Get the embeddings from the input tokens
         positionEmbed=self.positionEmbeddingTable(torch.arange(T, device=device)) #T*C, features for each position
         x=tokenEmbed+positionEmbed #B, T, C
-        x=self.sa_heads(x) #apply self-attention heads
+        x=self.blocks(x)
         logits=self.lm_head(tokenEmbed) #Convert them to logits
 
         if targets is None:
