@@ -19,15 +19,17 @@ trainData=data[:tmp] #Split of 9:1 train:test
 testData=data[tmp:]
 
 #Settings
-batchSize=4 #At once, in parallel
-contextLength=8 #Up to this many characters for predictions
-featuresLength=32 #Features for each character
-numHeads=4 #Num heads*head size = feature length.
-headSize=8
+numLayers=2
+dropout=0.2
+batchSize=64 #At once, in parallel
+contextLength=256 #Up to this many characters for predictions
+featuresLength=384 #Features for each character
+numHeads=6 #Num heads*head size = feature length.
+headSize=64
 maxIter=5000 #Number of epochs to run
-evalInterval=100 #Every interval, run full evaluation
-evalIters=100 #Iterations in evaluation
-learningRate=1e-3
+evalInterval=500 #Every interval, run full evaluation
+evalIters=200 #Iterations in evaluation
+learningRate=1e-4
 seed=3108
 
 device='cuda' if torch.cuda.is_available() else 'cpu' #Use GPU to drastically accelerate process if possible
@@ -61,7 +63,9 @@ class FeedForward(nn.Module): #Simple MLP for thinking on the data
         self.net=nn.Sequential(
             nn.Linear(featuresLength, featuresLength*4), 
             nn.ReLU(), 
-            nn.Linear(featuresLength*4, featuresLength))
+            nn.Linear(featuresLength*4, featuresLength),
+            nn.Dropout(dropout)
+            )
     def forward(self, x):
         return self.net(x)
 
@@ -70,10 +74,12 @@ class MultiHead(nn.Module): #Concat the results from multiple attention heads
         super().__init__()
         self.heads=nn.ModuleList([Head() for _ in range(numHeads)]) #Get multiple heads
         self.proj=nn.Linear(featuresLength, featuresLength)
+        self.dropout=nn.Dropout(dropout)
 
     def forward(self, x):
         out=torch.cat([h(x) for h in self.heads], dim=-1)
         out=self.proj(out)
+        out=self.dropout(out)
         return out
 
 class Head(nn.Module): #Head of self attention
@@ -83,6 +89,7 @@ class Head(nn.Module): #Head of self attention
         self.query=nn.Linear(featuresLength, headSize, bias=False) #What I want to know
         self.value=nn.Linear(featuresLength, headSize, bias=False) #What I will share
         self.register_buffer('tril', torch.tril(torch.ones(contextLength, contextLength)))
+        self.dropout=nn.Dropout(dropout)
     
     def forward(self, x):
         B, T, C=x.shape
@@ -93,18 +100,21 @@ class Head(nn.Module): #Head of self attention
         w=q@k.transpose(-2, -1)*C**-0.5
         w=w.masked_fill(self.tril[:T, :T]==0, float('-inf'))
         w=F.softmax(w, dim=-1)
+        w=self.dropout(w)
         #Get the info
         out=w@v
         return out
-
+    
 class Block(nn.Module): #A transformer block
     def __init__(self):
         super().__init__()
         self.sa=MultiHead()
         self.ffwd=FeedForward()
+        self.ln1=nn.LayerNorm(featuresLength)
+        self.ln2=nn.LayerNorm(featuresLength)
     def forward(self, x):
-        x=x+self.sa(x)
-        x=x+self.ffwd(x)
+        x=x+self.sa(self.ln1(x)) #Layer norm before computations
+        x=x+self.ffwd(self.ln2(x))
         return x
 
 class Model(nn.Module):
@@ -112,7 +122,8 @@ class Model(nn.Module):
         super().__init__()
         self.tokenEmbeddingTable=nn.Embedding(vocabSize, featuresLength) #Each character has features
         self.positionEmbeddingTable=nn.Embedding(contextLength, featuresLength) #Each position has features.
-        self.blocks=nn.Sequential(Block(), Block(), Block())
+        self.blocks=nn.Sequential(*[Block() for _ in range(numLayers)])
+        self.ln=nn.LayerNorm(featuresLength) #Final layer norm
         self.lm_head=nn.Linear(featuresLength, vocabSize) #Turns the embeddings (features) into logits of vocab size
     
     def forward(self, idx, targets=None):
@@ -122,6 +133,7 @@ class Model(nn.Module):
         positionEmbed=self.positionEmbeddingTable(torch.arange(T, device=device)) #T*C, features for each position
         x=tokenEmbed+positionEmbed #B, T, C
         x=self.blocks(x)
+        x=self.ln(x)
         logits=self.lm_head(tokenEmbed) #Convert them to logits
 
         if targets is None:
@@ -170,4 +182,4 @@ for iter in range(maxIter):
     break
 
 context = torch.zeros((1, 1), dtype=torch.long, device=device)
-print(decode(model.generate(context, 20)[0].tolist()))
+print(decode(model.generate(context, 100)[0].tolist()))
