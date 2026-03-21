@@ -22,7 +22,12 @@ testData=data[tmp:]
 batchSize=4 #At once, in parallel
 contextLength=8 #Up to this many characters for predictions
 featuresLength=12 #Features for each character
+numHeads=8
 headSize=16
+maxIter=5000 #Number of epochs to run
+evalInterval=100 #Every interval, run full evaluation
+evalIters=100 #Iterations in evaluation
+learningRate=1e-3
 seed=3108
 
 device='cuda' if torch.cuda.is_available() else 'cpu' #Use GPU to drastically accelerate process if possible
@@ -37,8 +42,26 @@ def getBatch(split):
     return x, y
 
 with torch.no_grad():
-    def finalLoss():
+    def getCurrentLoss():
         out={}
+        model.eval() #Evaluation mode
+        for split in ['train', 'val']:
+            losses = torch.zeros(evalIters)
+            for k in range(evalIters):
+                X, Y = getBatch(split)
+                logits, loss = model(X, Y)
+                losses[k] = loss.item()
+            out[split] = losses.mean()
+        model.train() #Back to training mode
+        return out
+
+class MultiHead(nn.Module): #Concat the results from multiple attention heads
+    def __init__(self):
+        super().__init__()
+        self.heads=nn.ModuleList([Head(headSize) for _ in range(numHeads)]) #Get multiple heads
+
+    def forward(self, x):
+        return torch.cat([h(x) for h in self.heads], dim=-1)
 
 class Head(nn.Module): #Head of self attention
     def __init__(self):
@@ -65,6 +88,7 @@ class Model(nn.Module):
     def __init__(self):
         self.tokenEmbeddingTable=nn.Embedding(vocabSize, featuresLength) #Each character has features
         self.positionEmbeddingTable=nn.Embedding(contextLength, featuresLength) #Each position has features.
+        self.sa_head=Head(featuresLength) #Self attention head
         self.lm_head=nn.Linear(featuresLength, vocabSize) #Turns the embeddings (features) into logits of vocab size
     
     def forward(self, idx, targets=None):
@@ -73,6 +97,7 @@ class Model(nn.Module):
         tokenEmbed=self.tokenEmbeddingTable(idx) #Get the embeddings from the input tokens
         positionEmbed=self.positionEmbeddingTable(torch.arange(T, device=device)) #T*C, features for each position
         x=tokenEmbed+positionEmbed #B, T, C
+        x=self.sa_head(x) #apply 1 head of self-attention head
         logits=self.lm_head(tokenEmbed) #Convert them to logits
 
         if targets is None:
@@ -85,5 +110,39 @@ class Model(nn.Module):
         
         return logits, loss
     
-    def generate(self):
-        pass
+    def generate(self, idx, tokenCount):
+        #Generate token count of tokens
+        for _ in range(tokenCount):
+            idxCropped=idx[:, -contextLength:]
+            #Get prediction
+            logits, loss=self(idxCropped)
+            #Get the last position
+            logits=logits[:, -1, :]
+            probs=F.softmax(logits, dim=-1)
+            #Get prediction
+            next=torch.multinomial(probs, num_samples=1)
+            #Append to the end
+            idx=torch.cat((idx, next), dim=1)
+        return idx
+
+
+model=Model()
+model=model.to(device)
+optimizer=torch.optim.AdamW(model.parameters(), lr=learningRate)
+
+for iter in range(maxIter):
+    if iter%evalInterval==0:
+        losses=getCurrentLoss()
+        print(f'Step {iter}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}')
+
+    #Get a batch 
+    xb, yb=getBatch('train')
+
+    #Training
+    logits, loss=model(xb, yb)
+    optimizer.zero_grad(set_to_none=True)
+    loss.backward()
+    optimizer.step()
+
+context = torch.zeros((1, 1), dtype=torch.long, device=device)
+print(decode(model.generate(context, max_new_tokens=2000)[0].tolist()))
