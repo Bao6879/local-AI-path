@@ -58,7 +58,10 @@ with torch.no_grad():
 class FeedForward(nn.Module): #Simple MLP for thinking on the data
     def __init__(self):
         super().__init__()
-        self.net=nn.Sequential(nn.Linear(featuresLength, featuresLength), nn.ReLU())
+        self.net=nn.Sequential(
+            nn.Linear(featuresLength, featuresLength*4), 
+            nn.ReLU(), 
+            nn.Linear(featuresLength*4, featuresLength))
     def forward(self, x):
         return self.net(x)
 
@@ -66,9 +69,12 @@ class MultiHead(nn.Module): #Concat the results from multiple attention heads
     def __init__(self):
         super().__init__()
         self.heads=nn.ModuleList([Head(headSize) for _ in range(numHeads)]) #Get multiple heads
+        self.proj=nn.Linear(featuresLength, featuresLength)
 
     def forward(self, x):
-        return torch.cat([h(x) for h in self.heads], dim=-1)
+        out=torch.cat([h(x) for h in self.heads], dim=-1)
+        out=self.proj(out)
+        return out;
 
 class Head(nn.Module): #Head of self attention
     def __init__(self):
@@ -97,8 +103,8 @@ class Block(nn.Module): #A transformer block
         self.sa=MultiHead(numHeads, headSize)
         self.ffwd=FeedForward(featuresLength)
     def forward(self, x):
-        x=self.sa(x)
-        x=self.ffwd(x)
+        x=x+self.sa(x)
+        x=x+self.ffwd(x)
         return x
 
 class Model(nn.Module):
