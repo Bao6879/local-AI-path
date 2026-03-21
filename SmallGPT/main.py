@@ -179,7 +179,6 @@ for iter in range(maxIter):
     optimizer.zero_grad(set_to_none=True)
     loss.backward()
     optimizer.step()
-    break
 
 context = torch.zeros((1, 1), dtype=torch.long, device=device)
 print(decode(model.generate(context, 100)[0].tolist()))
