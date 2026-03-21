@@ -88,7 +88,7 @@ class Model(nn.Module):
     def __init__(self):
         self.tokenEmbeddingTable=nn.Embedding(vocabSize, featuresLength) #Each character has features
         self.positionEmbeddingTable=nn.Embedding(contextLength, featuresLength) #Each position has features.
-        self.sa_head=Head(featuresLength) #Self attention head
+        self.sa_head=MultiHead() #Self attention heads
         self.lm_head=nn.Linear(featuresLength, vocabSize) #Turns the embeddings (features) into logits of vocab size
     
     def forward(self, idx, targets=None):
@@ -97,7 +97,7 @@ class Model(nn.Module):
         tokenEmbed=self.tokenEmbeddingTable(idx) #Get the embeddings from the input tokens
         positionEmbed=self.positionEmbeddingTable(torch.arange(T, device=device)) #T*C, features for each position
         x=tokenEmbed+positionEmbed #B, T, C
-        x=self.sa_head(x) #apply 1 head of self-attention head
+        x=self.sa_heads(x) #apply self-attention heads
         logits=self.lm_head(tokenEmbed) #Convert them to logits
 
         if targets is None:
