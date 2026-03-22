@@ -19,17 +19,17 @@ trainData=data[:tmp] #Split of 9:1 train:test
 testData=data[tmp:]
 
 #Settings
-numLayers=2
+numLayers=8
 dropout=0.2
 batchSize=64 #At once, in parallel
 contextLength=256 #Up to this many characters for predictions
 featuresLength=384 #Features for each character
 numHeads=6 #Num heads*head size = feature length.
 headSize=64
-maxIter=5000 #Number of epochs to run
+maxIter=50000 #Number of epochs to run
 evalInterval=500 #Every interval, run full evaluation
 evalIters=200 #Iterations in evaluation
-learningRate=1e-4
+learningRate=3e-4
 seed=3108
 
 device='cuda' if torch.cuda.is_available() else 'cpu' #Use GPU to drastically accelerate process if possible
@@ -181,4 +181,4 @@ for iter in range(maxIter):
     optimizer.step()
 
 context = torch.zeros((1, 1), dtype=torch.long, device=device)
-print(decode(model.generate(context, 100)[0].tolist()))
+print(decode(model.generate(context, 2000)[0].tolist()))
