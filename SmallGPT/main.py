@@ -26,7 +26,7 @@ contextLength=256 #Up to this many characters for predictions
 featuresLength=384 #Features for each character
 numHeads=6 #Num heads*head size = feature length.
 headSize=64
-maxIter=50000 #Number of epochs to run
+maxIter=5000 #Number of epochs to run
 evalInterval=500 #Every interval, run full evaluation
 evalIters=200 #Iterations in evaluation
 learningRate=3e-4
@@ -134,7 +134,7 @@ class Model(nn.Module):
         x=tokenEmbed+positionEmbed #B, T, C
         x=self.blocks(x)
         x=self.ln(x)
-        logits=self.lm_head(tokenEmbed) #Convert them to logits
+        logits=self.lm_head(x) #Convert them to logits
 
         if targets is None:
             loss=None
