@@ -19,12 +19,12 @@ trainData=data[:tmp] #Split of 9:1 train:test
 testData=data[tmp:]
 
 #Settings
-numLayers=8
+numLayers=23
 dropout=0.2
 batchSize=64 #At once, in parallel
-contextLength=256 #Up to this many characters for predictions
-featuresLength=384 #Features for each character
-numHeads=6 #Num heads*head size = feature length.
+contextLength=1024 #Up to this many characters for predictions
+featuresLength=768 #Features for each character
+numHeads=12 #Num heads*head size = feature length.
 headSize=64
 maxIter=5000 #Number of epochs to run
 evalInterval=500 #Every interval, run full evaluation
@@ -62,7 +62,7 @@ class FeedForward(nn.Module): #Simple MLP for thinking on the data
         super().__init__()
         self.net=nn.Sequential(
             nn.Linear(featuresLength, featuresLength*4), 
-            nn.ReLU(), 
+            nn.GELU(approximate='tanh'), 
             nn.Linear(featuresLength*4, featuresLength),
             nn.Dropout(dropout)
             )
@@ -180,5 +180,6 @@ for iter in range(maxIter):
     loss.backward()
     optimizer.step()
 
+model.eval()
 context = torch.zeros((1, 1), dtype=torch.long, device=device)
 print(decode(model.generate(context, 2000)[0].tolist()))
