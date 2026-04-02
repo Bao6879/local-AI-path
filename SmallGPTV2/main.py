@@ -1,4 +1,5 @@
 import torch
+import time
 import torch.nn as nn
 from torch.nn import functional as F
 import tiktoken
@@ -15,7 +16,7 @@ trainData=finalTokens[:tmp] #Split of 9:1 train:test
 testData=finalTokens[tmp:]
 
 #Settings
-vocabSize=50257
+vocabSize=50304
 numLayers=23
 dropout=0.2
 batchSize=4 #16, At once, in parallel
@@ -23,7 +24,7 @@ contextLength=128 #1024, Up to this many characters for predictions
 featuresLength=384 #768, Features for each character
 numHeads=6 #12, Num heads*head size = feature length.
 headSize=64
-maxIter=5000 #Number of epochs to run
+maxIter=10 #Number of epochs to run
 evalInterval=500 #Every interval, run full evaluation
 evalIters=200 #Iterations in evaluation
 learningRate=3e-4
@@ -57,10 +58,12 @@ with torch.no_grad():
 class FeedForward(nn.Module): #Simple MLP for thinking on the data
     def __init__(self):
         super().__init__()
+        projLayer=nn.Linear(featuresLength*4, featuresLength)
+        projLayer.stdDiffer=True
         self.net=nn.Sequential(
             nn.Linear(featuresLength, featuresLength*4), 
             nn.GELU(approximate='tanh'), 
-            nn.Linear(featuresLength*4, featuresLength),
+            projLayer,
             nn.Dropout(dropout)
             )
     def forward(self, x):
@@ -71,6 +74,7 @@ class MultiHead(nn.Module): #Concat the results from multiple attention heads
         super().__init__()
         self.heads=nn.ModuleList([Head() for _ in range(numHeads)]) #Get multiple heads
         self.proj=nn.Linear(featuresLength, featuresLength)
+        self.proj.stdDiffer=True
         self.dropout=nn.Dropout(dropout)
 
     def forward(self, x):
@@ -94,12 +98,13 @@ class Head(nn.Module): #Head of self attention
         q=self.query(x)
         v=self.value(x)
         #How much do I want to know about each position?
-        w=q@k.transpose(-2, -1)*C**-0.5
-        w=w.masked_fill(self.tril[:T, :T]==0, float('-inf'))
-        w=F.softmax(w, dim=-1)
-        w=self.dropout(w)
-        #Get the info
-        out=w@v
+        # w=q@k.transpose(-2, -1)*C**-0.5
+        # w=w.masked_fill(self.tril[:T, :T]==0, float('-inf'))
+        # w=F.softmax(w, dim=-1)
+        # w=self.dropout(w)
+        # out=w@v
+        #Flash attention
+        out=F.scaled_dot_product_attention(q, k, v, is_causal=True, dropout_p=dropout if self.training else 0.0)
         return out
     
 class Block(nn.Module): #A transformer block
@@ -122,6 +127,23 @@ class Model(nn.Module):
         self.blocks=nn.Sequential(*[Block() for _ in range(numLayers)])
         self.ln=nn.LayerNorm(featuresLength) #Final layer norm
         self.lm_head=nn.Linear(featuresLength, vocabSize) #Turns the embeddings (features) into logits of vocab size
+
+        #Weight sharing
+        self.tokenEmbeddingTable.weight=self.lm_head.weight
+
+        #Init params
+        self.apply(self.initWeights)
+
+    def initWeights(self, module):
+        if isinstance(module, nn.Linear):
+            std=0.02
+            if hasattr(module, 'stdDiffer'): #Different init for stuff that has residual layer
+                std*=(2*numLayers)**-0.5 #2 times cuz attention and MLP both add to residual layer
+            torch.nn.init.normal_(module.weight, mean=0.0, std=std)
+            if module.bias is not None:
+                torch.nn.init.zeros_(module.bias)
+        elif isinstance(module, nn.Embedding):
+            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
     
     def forward(self, idx, targets=None):
         B, T=idx.shape
@@ -152,30 +174,42 @@ class Model(nn.Module):
             #Get the last position
             logits=logits[:, -1, :]
             probs=F.softmax(logits, dim=-1)
+            topProbs, topIndicies=torch.topk(probs, 50, dim=-1)
             #Get prediction
-            next=torch.multinomial(probs, num_samples=1)
+            next=torch.multinomial(topProbs, num_samples=1)
             #Append to the end
             idx=torch.cat((idx, next), dim=1)
         return idx
 
-
+#Use TF32
+torch.set_float32_matmul_precision('high')
 model=Model()
 model=model.to(device)
 optimizer=torch.optim.AdamW(model.parameters(), lr=learningRate)
 
 for iter in range(maxIter):
-    if iter%evalInterval==0:
-        losses=getCurrentLoss()
-        print(f"step {iter}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
+    t0=time.time()
+    #Testing, currently removed to see time
+    # if iter%evalInterval==0:
+    #     losses=getCurrentLoss()
+    #     print(f"step {iter}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
 
     #Get a batch 
     xb, yb=getBatch('train')
 
     #Training
-    logits, loss=model(xb, yb)
+    with torch.autocast(device_type=device, dtype=torch.bfloat16): #Use bfloat 16 to go even faster
+        logits, loss=model(xb, yb)
     optimizer.zero_grad(set_to_none=True)
     loss.backward()
     optimizer.step()
-    break
+    torch.cuda.synchronize() #Wait for GPU to be done
+    # if iter%evalInterval==0: #Should be periodic when it runs
+    t1=time.time()
+    dt=(t1-t0)*1000
+    tokenPerSec=batchSize*contextLength/(t1-t0)
+    print(f"step: {iter}, loss: {loss:.2f}, dt: {dt:.2f}ms, tok/s: {tokenPerSec:.2f}")
 
 model.eval()
+# context = torch.zeros((1, 1), dtype=torch.long, device=device)
+# print(tiktoken.decode(model.generate(context, 100)[0].tolist()))
