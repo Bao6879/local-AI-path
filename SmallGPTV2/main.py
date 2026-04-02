@@ -1,20 +1,20 @@
 import torch
 import time
 import math
+import os
+import glob
+import numpy as np
 import torch.nn as nn
 from torch.nn import functional as F
 import tiktoken
 
 #Setup
-with open('input.txt', 'r', encoding='utf-8') as f:
-    text=f.read() #Everything in the file.
 enc=tiktoken.get_encoding('gpt2')
-tmpTokens=enc.encode(text)
-finalTokens=torch.tensor(tmpTokens)
+dataDir='data'
+shards=sorted(glob.glob(os.path.join(dataDir, 'edu_fineweb_train_*.bin')))
 
-tmp=int(0.9*len(finalTokens)) #The encoded dataset, stored in a tensor
-trainData=finalTokens[:tmp] #Split of 9:1 train:test
-testData=finalTokens[tmp:]
+trainShards=shards[:-1]
+testShards=shards[-1:]
 
 #Settings
 vocabSize=50304
@@ -27,9 +27,8 @@ gradAccumSteps=totalBatchSize//(batchSize*contextLength) #Number of steps
 featuresLength=384 #768, Features for each character
 numHeads=6 #12, Num heads*head size = feature length.
 headSize=64
-maxIter=10 #Number of epochs to run
-evalInterval=500 #Every interval, run full evaluation
-evalIters=200 #Iterations in evaluation
+maxIter=10 #3814, Number of iterations to run (this is 1 full iteration of 2B tokens)
+evalInterval=100 #Every interval, run evaluation
 learningRate=6e-4
 seed=3108
 
@@ -38,7 +37,7 @@ torch.manual_seed(seed=seed)
 
 #Cosine learning rate decay with warmup (like GPT-3)
 minLr=learningRate*0.1
-warmUp=maxIter*0.2
+warmUp=maxIter*0.05
 def getLr(i):
     if i<warmUp:
         return learningRate*(i+1)/warmUp
@@ -47,26 +46,27 @@ def getLr(i):
     return minLr+coeff*(learningRate-minLr)
 
 def getBatch(split):
-    data=trainData if split=='train' else testData
-    ix=torch.randint(len(data)-contextLength, (batchSize, ))
-    x=torch.stack([data[i:i+contextLength] for i in ix])
-    y=torch.stack([data[i+1:i+contextLength+1] for i in ix])
+    shardList=trainShards if split=='train' else testShards
+    shard=np.random.choice(shardList)
+    data=np.memmap(shard, dtype=np.uint16, mode='r')
+    ix=torch.randint(len(data)-contextLength, (batchSize,))
+    x=torch.stack([torch.from_numpy(data[i:i+contextLength].astype(np.int64)) for i in ix])
+    y=torch.stack([torch.from_numpy(data[i+1:i+contextLength+1].astype(np.int64)) for i in ix])
     x, y=x.to(device), y.to(device)
     return x, y
 
-with torch.no_grad():
-    def getCurrentLoss():
-        out={}
-        model.eval() #Evaluation mode
-        for split in ['train', 'val']:
-            losses = torch.zeros(evalIters)
-            for k in range(evalIters):
-                X, Y = getBatch(split)
-                logits, loss = model(X, Y)
-                losses[k] = loss.item()
-            out[split] = losses.mean()
-        model.train() #Back to training mode
-        return out
+def getCurrentLoss():
+    model.eval()
+    with torch.no_grad():
+        testLossAccum=0.0
+        testSteps=20
+        for _ in range (testSteps):
+            x, y=getBatch('test')
+            with torch.autocast(device_type=device, dtype=torch.bfloat16):
+                logits, loss=model(x, y)
+            loss=loss/testSteps
+            testLossAccum+=loss.detach()
+        print(f"Test loss: {testLossAccum:.4f}")
 
 class FeedForward(nn.Module): #Simple MLP for thinking on the data
     def __init__(self):
@@ -202,10 +202,8 @@ optimizer=torch.optim.AdamW(model.parameters(), lr=learningRate, betas=(0.9, 0.9
 
 for iter in range(maxIter):
     t0=time.time()
-    #Testing, currently removed to see time
-    # if iter%evalInterval==0:
-    #     losses=getCurrentLoss()
-    #     print(f"step {iter}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
+    if iter%evalInterval==0:
+        losses=getCurrentLoss()
 
     #Training
     optimizer.zero_grad(set_to_none=True)
@@ -233,5 +231,7 @@ for iter in range(maxIter):
     print(f"step: {iter}, loss: {lossAccum:.2f}, dt: {dt:.2f}ms, tok/s: {tokenPerSec:.2f}")
 
 model.eval()
-# context = torch.zeros((1, 1), dtype=torch.long, device=device)
-# print(tiktoken.decode(model.generate(context, 100)[0].tolist()))
+context = torch.zeros((1, 1), dtype=torch.long, device=device)
+tokens=model.generate(context, 100)[0].tolist()
+decoded=enc.decode(tokens=tokens)
+print(decoded)
