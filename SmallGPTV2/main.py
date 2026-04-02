@@ -1,5 +1,6 @@
 import torch
 import time
+import math
 import torch.nn as nn
 from torch.nn import functional as F
 import tiktoken
@@ -27,11 +28,21 @@ headSize=64
 maxIter=10 #Number of epochs to run
 evalInterval=500 #Every interval, run full evaluation
 evalIters=200 #Iterations in evaluation
-learningRate=3e-4
+learningRate=6e-4
 seed=3108
 
 device='cuda' if torch.cuda.is_available() else 'cpu' #Use GPU to accelerate process if possible
 torch.manual_seed(seed=seed)
+
+#Cosine learning rate decay with warmup (like GPT-3)
+minLr=learningRate*0.1
+warmUp=maxIter*0.2
+def getLr(i):
+    if i<warmUp:
+        return learningRate*(i+1)/warmUp
+    decayRate=(i-warmUp)/(maxIter-warmUp)
+    coeff=0.5*(1.0+math.cos(math.pi*decayRate))
+    return minLr+coeff*(learningRate-minLr)
 
 def getBatch(split):
     data=trainData if split=='train' else testData
@@ -185,7 +196,7 @@ class Model(nn.Module):
 torch.set_float32_matmul_precision('high')
 model=Model()
 model=model.to(device)
-optimizer=torch.optim.AdamW(model.parameters(), lr=learningRate)
+optimizer=torch.optim.AdamW(model.parameters(), lr=learningRate, betas=(0.9, 0.95), eps=1e-8)
 
 for iter in range(maxIter):
     t0=time.time()
@@ -194,7 +205,7 @@ for iter in range(maxIter):
     #     losses=getCurrentLoss()
     #     print(f"step {iter}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
 
-    #Get a batch 
+    #Get a batch (not doing the non-repeated until the next block)
     xb, yb=getBatch('train')
 
     #Training
@@ -202,6 +213,11 @@ for iter in range(maxIter):
         logits, loss=model(xb, yb)
     optimizer.zero_grad(set_to_none=True)
     loss.backward()
+    norm=torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0) #Grad clipping to prevent model shock.
+    #Use learning rate scheduler
+    lr=getLr(iter)
+    for param in optimizer.param_groups:
+        param['lr']=lr
     optimizer.step()
     torch.cuda.synchronize() #Wait for GPU to be done
     # if iter%evalInterval==0: #Should be periodic when it runs
