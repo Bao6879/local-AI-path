@@ -20,8 +20,10 @@ testData=finalTokens[tmp:]
 vocabSize=50304
 numLayers=23
 dropout=0.2
-batchSize=4 #16, At once, in parallel
+totalBatchSize=512 #524288, Full batch size
+batchSize=4 #16, At once, micro batch size
 contextLength=128 #1024, Up to this many characters for predictions
+gradAccumSteps=totalBatchSize//(batchSize*contextLength) #Number of steps
 featuresLength=384 #768, Features for each character
 numHeads=6 #12, Num heads*head size = feature length.
 headSize=64
@@ -205,14 +207,18 @@ for iter in range(maxIter):
     #     losses=getCurrentLoss()
     #     print(f"step {iter}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
 
-    #Get a batch (not doing the non-repeated until the next block)
-    xb, yb=getBatch('train')
-
     #Training
-    with torch.autocast(device_type=device, dtype=torch.bfloat16): #Use bfloat 16 to go even faster
-        logits, loss=model(xb, yb)
     optimizer.zero_grad(set_to_none=True)
-    loss.backward()
+    lossAccum=0.0
+    for j in range(gradAccumSteps):
+        #Get a batch (not doing the non-repeated until the next block)
+        xb, yb=getBatch('train')
+        with torch.autocast(device_type=device, dtype=torch.bfloat16): #Use bfloat 16 to go even faster
+            logits, loss=model(xb, yb)
+        #Scale loss to account for grad accum
+        loss=loss/gradAccumSteps
+        lossAccum+=loss.detach()
+        loss.backward()
     norm=torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0) #Grad clipping to prevent model shock.
     #Use learning rate scheduler
     lr=getLr(iter)
@@ -223,8 +229,8 @@ for iter in range(maxIter):
     # if iter%evalInterval==0: #Should be periodic when it runs
     t1=time.time()
     dt=(t1-t0)*1000
-    tokenPerSec=batchSize*contextLength/(t1-t0)
-    print(f"step: {iter}, loss: {loss:.2f}, dt: {dt:.2f}ms, tok/s: {tokenPerSec:.2f}")
+    tokenPerSec=totalBatchSize/(t1-t0)
+    print(f"step: {iter}, loss: {lossAccum:.2f}, dt: {dt:.2f}ms, tok/s: {tokenPerSec:.2f}")
 
 model.eval()
 # context = torch.zeros((1, 1), dtype=torch.long, device=device)
