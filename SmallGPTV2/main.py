@@ -1,30 +1,27 @@
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
+import tiktoken
 
 #Setup
 with open('input.txt', 'r', encoding='utf-8') as f:
     text=f.read() #Everything in the file.
-chars=list(set(text)) #All unique characters in the files.
-vocabSize=len(chars)
+enc=tiktoken.get_encoding('gpt2')
+tmpTokens=enc.encode(text)
+finalTokens=torch.tensor(tmpTokens)
 
-cToI={c:i for i, c in enumerate(chars)} #Character -> index and vice versa
-iToC={i:c for i, c in enumerate(chars)}
-encode=lambda s: [cToI[c] for c in s] #Takes in a string -> turns to array of ints and vice versa
-
-decode=lambda a: ''.join([iToC[i] for i in a]) 
-data=torch.tensor(encode(text), dtype=torch.long) #Encoded dataset, stored in a tensor
-tmp=int(0.9*len(data))
-trainData=data[:tmp] #Split of 9:1 train:test
-testData=data[tmp:]
+tmp=int(0.9*len(finalTokens)) #The encoded dataset, stored in a tensor
+trainData=finalTokens[:tmp] #Split of 9:1 train:test
+testData=finalTokens[tmp:]
 
 #Settings
+vocabSize=50257
 numLayers=23
 dropout=0.2
-batchSize=64 #At once, in parallel
-contextLength=1024 #Up to this many characters for predictions
-featuresLength=768 #Features for each character
-numHeads=12 #Num heads*head size = feature length.
+batchSize=4 #16, At once, in parallel
+contextLength=128 #1024, Up to this many characters for predictions
+featuresLength=384 #768, Features for each character
+numHeads=6 #12, Num heads*head size = feature length.
 headSize=64
 maxIter=5000 #Number of epochs to run
 evalInterval=500 #Every interval, run full evaluation
@@ -32,7 +29,7 @@ evalIters=200 #Iterations in evaluation
 learningRate=3e-4
 seed=3108
 
-device='cuda' if torch.cuda.is_available() else 'cpu' #Use GPU to drastically accelerate process if possible
+device='cuda' if torch.cuda.is_available() else 'cpu' #Use GPU to accelerate process if possible
 torch.manual_seed(seed=seed)
 
 def getBatch(split):
@@ -179,7 +176,6 @@ for iter in range(maxIter):
     optimizer.zero_grad(set_to_none=True)
     loss.backward()
     optimizer.step()
+    break
 
 model.eval()
-context = torch.zeros((1, 1), dtype=torch.long, device=device)
-print(decode(model.generate(context, 2000)[0].tolist()))
