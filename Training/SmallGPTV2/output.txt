@@ -1,0 +1,19 @@
+Trained to iter 19073 (10B tokens)
+Last loss 2.8969266414642334
+
+Example outputs:
+input> the sky is
+
+the sky is the best place to see the sun, but at the end of the day, the sun is lower than it is in the sky.
+In the old days, the sky was a great distance away from the earth. There were several celestial bodies with equal orbits, and even though they were all different, they all seemed similar in their appearances.
+However, today, the idea of a celestial body with equal orbits is obsolete, and the idea of a celestial body with equal motions of its own orbits, though very different, is more common.
+
+input> the capital of France is
+
+the capital of France is Saint-Cloud which is located in the southern part of the country. In the southern part of the country can be found the town of Mont-Saint-Michel, which is located in the southern part of the country. In the southern part of the country there is the city of Toulon, which is located in the northern part of the country. The capital of the French state is Paris which is located in the northern part of the country. It is located in the southern part of the country.
+
+input> hello i am
+
+hello i am a college student in my class. I have been thinking of the problem of the word, the problem of the word, all these problems can be found in our English.
+Hi there. Have you ever heard of the word, the word, all these problems can be found in our English. What is the word, the word, all these problems can be found in our English?
+I am trying to find out if these are the words that we are using everyday to describe a problem. It is an easy question, but it is so important for the English language.
