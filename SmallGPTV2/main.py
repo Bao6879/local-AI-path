@@ -20,14 +20,14 @@ testShards=shards[-1:]
 vocabSize=50304
 numLayers=23
 dropout=0.2
-totalBatchSize=512 #524288, Full batch size
-batchSize=4 #16, At once, micro batch size
-contextLength=128 #1024, Up to this many characters for predictions
+totalBatchSize=524288 #Full batch size (in tokens)
+batchSize=32 #At once, micro batch size -- 5090 has 32GB VRAM; drop to 16 if the warmup OOMs
+contextLength=1024 #Up to this many tokens for predictions
 gradAccumSteps=totalBatchSize//(batchSize*contextLength) #Number of steps
-featuresLength=384 #768, Features for each character
-numHeads=6 #12, Num heads*head size = feature length.
+featuresLength=768 #Features for each token
+numHeads=12 #Num heads*head size = feature length.
 headSize=64
-maxIter=10 #3814, Number of iterations to run (this is 1 full iteration of 2B tokens)
+maxIter=19073 #~1 full epoch over the 10B-token sample (10e9/524288). Drop to 7600 for ~4B tokens.
 evalInterval=100 #Every interval, run evaluation
 learningRate=6e-4
 seed=3108
@@ -189,7 +189,8 @@ class Model(nn.Module):
             probs=F.softmax(logits, dim=-1)
             topProbs, topIndicies=torch.topk(probs, 50, dim=-1)
             #Get prediction
-            next=torch.multinomial(topProbs, num_samples=1)
+            nextIndex=torch.multinomial(topProbs, num_samples=1)
+            next=torch.gather(topIndicies, -1, nextIndex)
             #Append to the end
             idx=torch.cat((idx, next), dim=1)
         return idx
@@ -200,12 +201,32 @@ model=Model()
 model=model.to(device)
 optimizer=torch.optim.AdamW(model.parameters(), lr=learningRate, betas=(0.9, 0.95), eps=1e-8)
 
+#Compile the model for a speedup. torch.compile is lazy (it actually compiles on the first
+#step) and relies on Triton, which is frequently broken on native Windows -- so we trigger it
+#now with a throwaway batch and fall back to eager mode if it fails, rather than crashing a
+#multi-hour run. Optimizer already references the same param tensors, so this stays consistent.
+useCompile=True
+if useCompile:
+    try:
+        model=torch.compile(model)
+        warmX=torch.randint(0, vocabSize, (batchSize, contextLength), device=device)
+        warmY=torch.randint(0, vocabSize, (batchSize, contextLength), device=device)
+        with torch.autocast(device_type=device, dtype=torch.bfloat16):
+            _, warmLoss=model(warmX, warmY)
+        warmLoss.backward()
+        model.zero_grad(set_to_none=True)
+        print("torch.compile: enabled")
+    except Exception as e:
+        model=getattr(model, '_orig_mod', model) #Unwrap the compiled wrapper, keep training eager
+        model.zero_grad(set_to_none=True)
+        print(f"torch.compile: disabled, falling back to eager ({type(e).__name__}: {e})")
+
 for iter in range(maxIter):
-    t0=time.time()
     if iter%evalInterval==0:
         losses=getCurrentLoss()
-
     #Training
+    model.train() #Eval flips model to eval mode; flip back so dropout stays active
+    t0=time.time() #Time the training step to report throughput
     optimizer.zero_grad(set_to_none=True)
     lossAccum=0.0
     for j in range(gradAccumSteps):
@@ -223,12 +244,28 @@ for iter in range(maxIter):
     for param in optimizer.param_groups:
         param['lr']=lr
     optimizer.step()
-    torch.cuda.synchronize() #Wait for GPU to be done
-    # if iter%evalInterval==0: #Should be periodic when it runs
-    t1=time.time()
-    dt=(t1-t0)*1000
-    tokenPerSec=totalBatchSize/(t1-t0)
-    print(f"step: {iter}, loss: {lossAccum:.2f}, dt: {dt:.2f}ms, tok/s: {tokenPerSec:.2f}")
+    if device=='cuda':
+        torch.cuda.synchronize() #GPU work is async; wait for it to finish before timing
+    dt=time.time()-t0
+    tokensPerSec=totalBatchSize/dt #totalBatchSize tokens processed per optimizer step
+    print(f"step {iter:4d} | loss {lossAccum:.4f} | lr {lr:.2e} | norm {norm:.2f} | dt {dt*1000:.0f}ms | tok/s {tokensPerSec:,.0f}")
+    if iter%evalInterval==0: #Should be periodic when it runs
+        #Periodic checkpoint so a long run can be resumed / weights aren't lost
+        os.makedirs('checkpoints', exist_ok=True)
+        torch.save({
+            'iter': iter,
+            'model': model.state_dict(),
+            'optimizer': optimizer.state_dict(),
+            'loss': lossAccum.item(),
+        }, os.path.join('checkpoints', f'ckpt_{iter:06d}.pt'))
+
+#Final checkpoint after training completes
+os.makedirs('checkpoints', exist_ok=True)
+torch.save({
+    'iter': maxIter,
+    'model': model.state_dict(),
+    'optimizer': optimizer.state_dict(),
+}, os.path.join('checkpoints', 'ckpt_final.pt'))
 
 model.eval()
 context = torch.zeros((1, 1), dtype=torch.long, device=device)
