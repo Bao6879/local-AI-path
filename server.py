@@ -1,11 +1,9 @@
 from fastapi import FastAPI
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
 from pydantic import BaseModel
+import codecs
 
-from inferenceStream import loadModel
-from inferenceStream import getInitialContext
-
-import time
+from inferenceStream import loadModel, getInitialContext, enc
 
 app = FastAPI() 
 model=loadModel()
@@ -17,11 +15,21 @@ class GenerateRequest(BaseModel):
     topk: int=50
 
 @app.get("/")
-def root():
-    return {"message": "hello"} 
+async def ui():
+    return FileResponse("ui.html")
+
+async def token_stream(req):
+    decoder=codecs.getincrementaldecoder('utf-8')('replace')
+    ctx=getInitialContext(req.prompt)
+    for token in model.generate(ctx, tokenCount=req.max_tokens, topk=req.topk, temperature=req.temperature):
+        token_bytes=enc.decode_single_token_bytes(token)
+        text = decoder.decode(token_bytes)
+        if text:
+            yield text
+    tail=decoder.decode(b'', final=True)
+    if tail:
+        yield tail
 
 @app.post("/generate")
 async def generate(req: GenerateRequest):
-    ctx=getInitialContext(req.prompt)
-    gen=model.generate(ctx, tokenCount=req.max_tokens, topk=req.topk, temperature=req.temperature)
-    return StreamingResponse(gen, media_type="text/plain")
+    return StreamingResponse(token_stream(req), media_type="text/plain")

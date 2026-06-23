@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LLM</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: #0f0f0f;
+    color: #e8e8e8;
+    font-family: 'Courier New', monospace;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+
+  h1 {
+    font-size: 13px;
+    font-weight: normal;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: #555;
+    margin-bottom: 32px;
+  }
+
+  #container {
+    width: 100%;
+    max-width: 720px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  #output {
+    background: #161616;
+    border: 1px solid #2a2a2a;
+    border-radius: 6px;
+    padding: 20px;
+    min-height: 200px;
+    max-height: 480px;
+    overflow-y: auto;
+    font-size: 14px;
+    line-height: 1.7;
+    color: #e8e8e8;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  #output.empty { color: #444; }
+
+  #input-row {
+    display: flex;
+    gap: 8px;
+  }
+
+  #prompt {
+    flex: 1;
+    background: #161616;
+    border: 1px solid #2a2a2a;
+    border-radius: 6px;
+    padding: 12px 16px;
+    font-family: inherit;
+    font-size: 14px;
+    color: #e8e8e8;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+
+  #prompt:focus { border-color: #444; }
+  #prompt::placeholder { color: #444; }
+
+  #submit {
+    background: #e8e8e8;
+    color: #0f0f0f;
+    border: none;
+    border-radius: 6px;
+    padding: 12px 20px;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: bold;
+    cursor: pointer;
+    letter-spacing: 0.05em;
+    transition: background 0.15s;
+    white-space: nowrap;
+  }
+
+  #submit:hover { background: #ccc; }
+  #submit:disabled { background: #333; color: #666; cursor: not-allowed; }
+
+  #params {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  .param {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: #555;
+  }
+
+  .param label { letter-spacing: 0.05em; }
+
+  .param input {
+    background: #161616;
+    border: 1px solid #2a2a2a;
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-family: inherit;
+    font-size: 12px;
+    color: #e8e8e8;
+    width: 60px;
+    outline: none;
+  }
+
+  .param input:focus { border-color: #444; }
+
+  #status {
+    font-size: 11px;
+    color: #444;
+    letter-spacing: 0.05em;
+    min-height: 16px;
+  }
+</style>
+</head>
+<body>
+
+<h1>text completion</h1>
+
+<div id="container">
+  <div id="output" class="empty">output will appear here</div>
+
+  <div id="input-row">
+    <input id="prompt" type="text" placeholder="enter a prompt..." autocomplete="off" />
+    <button id="submit">Run</button>
+  </div>
+
+  <div id="params">
+    <div class="param">
+      <label>TOKENS</label>
+      <input id="max_tokens" type="number" value="100" min="1" max="500" />
+    </div>
+    <div class="param">
+      <label>TEMP</label>
+      <input id="temperature" type="number" value="0.8" min="0.1" max="2.0" step="0.1" />
+    </div>
+    <div class="param">
+      <label>TOP-K</label>
+      <input id="topk" type="number" value="50" min="1" max="200" />
+    </div>
+  </div>
+
+  <div id="status"></div>
+</div>
+
+<script>
+  const output = document.getElementById('output');
+  const prompt = document.getElementById('prompt');
+  const submit = document.getElementById('submit');
+  const status = document.getElementById('status');
+
+  async function run() {
+    const text = prompt.value.trim();
+    if (!text) return;
+
+    submit.disabled = true;
+    output.classList.remove('empty');
+    output.textContent = text;
+    status.textContent = 'generating...';
+
+    const body = {
+      prompt: text,
+      max_tokens: parseInt(document.getElementById('max_tokens').value),
+      temperature: parseFloat(document.getElementById('temperature').value),
+      topk: parseInt(document.getElementById('topk').value),
+    };
+
+    try {
+      const response = await fetch('/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder('utf-8', { fatal: false });
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        output.textContent += decoder.decode(value, { stream: true });
+        output.scrollTop = output.scrollHeight;
+      }
+
+      status.textContent = 'done';
+    } catch (err) {
+      status.textContent = 'error: ' + err.message;
+    } finally {
+      submit.disabled = false;
+    }
+  }
+
+  submit.addEventListener('click', run);
+  prompt.addEventListener('keydown', e => { if (e.key === 'Enter') run(); });
+</script>
+</body>
+</html>

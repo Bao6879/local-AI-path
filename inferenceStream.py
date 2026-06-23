@@ -91,7 +91,7 @@ class Model(nn.Module):
             topProbs, topIdx=torch.topk(probs, topk, dim=-1)
             choice=torch.multinomial(topProbs, num_samples=1)
             nextTok=torch.gather(topIdx, -1, choice)
-            yield enc.decode(nextTok[0].tolist())
+            yield nextTok.item()
             idx=torch.cat((idx, nextTok), dim=1)
 
 
@@ -102,7 +102,7 @@ def loadModel(path=ckptPath):
     model=Model().to(device)
     model.load_state_dict(state)
     model.eval()
-    print(f"loaded {path} | trained to iter {ckpt.get('iter','?')} | last loss {ckpt.get('loss','?')}")
+    # print(f"loaded {path} | trained to iter {ckpt.get('iter','?')} | last loss {ckpt.get('loss','?')}")
     return model
 
 
