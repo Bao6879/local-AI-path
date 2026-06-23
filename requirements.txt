@@ -1,0 +1,5 @@
+torch
+tiktoken
+fastapi
+uvicorn
+pydantic
