@@ -19,16 +19,17 @@ testShards=shards[-1:]
 #Settings
 vocabSize=50304
 numLayers=23
-dropout=0.2
+dropout=0.0
 totalBatchSize=524288 #Full batch size (in tokens)
-batchSize=32 #At once, micro batch size -- 5090 has 32GB VRAM; drop to 16 if the warmup OOMs
+batchSize=16 #At once, micro batch size
 contextLength=1024 #Up to this many tokens for predictions
 gradAccumSteps=totalBatchSize//(batchSize*contextLength) #Number of steps
 featuresLength=768 #Features for each token
 numHeads=12 #Num heads*head size = feature length.
 headSize=64
-maxIter=19073 #~1 full epoch over the 10B-token sample (10e9/524288). Drop to 7600 for ~4B tokens.
+maxIter=19073 #~1 full epoch over the 10B-token sample
 evalInterval=100 #Every interval, run evaluation
+checkpointInterval=1000 #Save a single rolling checkpoint this often (overwrites the previous one)
 learningRate=6e-4
 seed=3108
 
@@ -82,44 +83,28 @@ class FeedForward(nn.Module): #Simple MLP for thinking on the data
     def forward(self, x):
         return self.net(x)
 
-class MultiHead(nn.Module): #Concat the results from multiple attention heads
+class MultiHead(nn.Module): #Batched multi-head self-attention (single QKV matmul, one flash-attention call)
     def __init__(self):
         super().__init__()
-        self.heads=nn.ModuleList([Head() for _ in range(numHeads)]) #Get multiple heads
+        #One combined projection produces Q, K and V for every head at once (768 -> 3*768)
+        self.qkv=nn.Linear(featuresLength, 3*featuresLength, bias=False)
         self.proj=nn.Linear(featuresLength, featuresLength)
-        self.proj.stdDiffer=True
+        self.proj.stdDiffer=True #Residual-output layer: gets the scaled init
         self.dropout=nn.Dropout(dropout)
 
-    def forward(self, x):
-        out=torch.cat([h(x) for h in self.heads], dim=-1)
-        out=self.proj(out)
-        out=self.dropout(out)
-        return out
-
-class Head(nn.Module): #Head of self attention
-    def __init__(self):
-        super().__init__()
-        self.key=nn.Linear(featuresLength, headSize, bias=False) #What I have to share
-        self.query=nn.Linear(featuresLength, headSize, bias=False) #What I want to know
-        self.value=nn.Linear(featuresLength, headSize, bias=False) #What I will share
-        self.register_buffer('tril', torch.tril(torch.ones(contextLength, contextLength)))
-        self.dropout=nn.Dropout(dropout)
-    
     def forward(self, x):
         B, T, C=x.shape
-        k=self.key(x)
-        q=self.query(x)
-        v=self.value(x)
-        #How much do I want to know about each position?
-        # w=q@k.transpose(-2, -1)*C**-0.5
-        # w=w.masked_fill(self.tril[:T, :T]==0, float('-inf'))
-        # w=F.softmax(w, dim=-1)
-        # w=self.dropout(w)
-        # out=w@v
-        #Flash attention
+        q, k, v=self.qkv(x).split(featuresLength, dim=2) #Each is (B, T, C)
+        #Reshape (B, T, C) -> (B, numHeads, T, headSize) so attention runs over all heads in parallel
+        q=q.view(B, T, numHeads, headSize).transpose(1, 2)
+        k=k.view(B, T, numHeads, headSize).transpose(1, 2)
+        v=v.view(B, T, numHeads, headSize).transpose(1, 2)
+        #One flash-attention kernel for the whole batch of heads; scales and causal-masks internally
         out=F.scaled_dot_product_attention(q, k, v, is_causal=True, dropout_p=dropout if self.training else 0.0)
+        out=out.transpose(1, 2).contiguous().view(B, T, C) #Re-assemble heads back into (B, T, C)
+        out=self.dropout(self.proj(out))
         return out
-    
+
 class Block(nn.Module): #A transformer block
     def __init__(self):
         super().__init__()
@@ -200,11 +185,6 @@ torch.set_float32_matmul_precision('high')
 model=Model()
 model=model.to(device)
 optimizer=torch.optim.AdamW(model.parameters(), lr=learningRate, betas=(0.9, 0.95), eps=1e-8)
-
-#Compile the model for a speedup. torch.compile is lazy (it actually compiles on the first
-#step) and relies on Triton, which is frequently broken on native Windows -- so we trigger it
-#now with a throwaway batch and fall back to eager mode if it fails, rather than crashing a
-#multi-hour run. Optimizer already references the same param tensors, so this stays consistent.
 useCompile=True
 if useCompile:
     try:
@@ -249,23 +229,29 @@ for iter in range(maxIter):
     dt=time.time()-t0
     tokensPerSec=totalBatchSize/dt #totalBatchSize tokens processed per optimizer step
     print(f"step {iter:4d} | loss {lossAccum:.4f} | lr {lr:.2e} | norm {norm:.2f} | dt {dt*1000:.0f}ms | tok/s {tokensPerSec:,.0f}")
-    if iter%evalInterval==0: #Should be periodic when it runs
-        #Periodic checkpoint so a long run can be resumed / weights aren't lost
+    if iter>0 and iter%checkpointInterval==0:
         os.makedirs('checkpoints', exist_ok=True)
+        ckptPath=os.path.join('checkpoints', 'ckpt.pt')
+        tmpPath=ckptPath+'.tmp'
         torch.save({
             'iter': iter,
             'model': model.state_dict(),
             'optimizer': optimizer.state_dict(),
             'loss': lossAccum.item(),
-        }, os.path.join('checkpoints', f'ckpt_{iter:06d}.pt'))
+        }, tmpPath)
+        os.replace(tmpPath, ckptPath)
 
-#Final checkpoint after training completes
+#Final checkpoint after training completes, overwrite the same single file
 os.makedirs('checkpoints', exist_ok=True)
+ckptPath=os.path.join('checkpoints', 'ckpt.pt')
+tmpPath=ckptPath+'.tmp'
 torch.save({
     'iter': maxIter,
     'model': model.state_dict(),
     'optimizer': optimizer.state_dict(),
-}, os.path.join('checkpoints', 'ckpt_final.pt'))
+    'loss': lossAccum.item(),
+}, tmpPath)
+os.replace(tmpPath, ckptPath)
 
 model.eval()
 context = torch.zeros((1, 1), dtype=torch.long, device=device)
