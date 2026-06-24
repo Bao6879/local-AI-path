@@ -1,6 +1,8 @@
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse, FileResponse
 from pydantic import BaseModel
+from huggingface_hub import hf_hub_download
+import os
 import codecs
 import torch
 
@@ -9,6 +11,14 @@ torch.set_num_threads(4)
 from inferenceStream import loadModel, getInitialContext, enc
 
 app = FastAPI()
+
+if not os.path.exists("checkpoints/ckpt.pt"):
+    os.makedirs("checkpoints", exist_ok=True)
+    hf_hub_download(
+        repo_id="Bao6879/small-finest-web",
+        filename="ckpt.pt",
+        local_dir="checkpoints/"
+    )
 model=loadModel()
 
 class GenerateRequest(BaseModel):
