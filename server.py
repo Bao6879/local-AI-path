@@ -2,10 +2,13 @@ from fastapi import FastAPI
 from fastapi.responses import StreamingResponse, FileResponse
 from pydantic import BaseModel
 import codecs
+import torch
+
+torch.set_num_threads(4)
 
 from inferenceStream import loadModel, getInitialContext, enc
 
-app = FastAPI() 
+app = FastAPI()
 model=loadModel()
 
 class GenerateRequest(BaseModel):

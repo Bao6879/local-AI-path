@@ -1,0 +1,25 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: local-ai-path
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: local-ai-path
+  template:
+    metadata:
+      labels:
+        app: local-ai-path
+    spec:
+      containers:
+      - name: local-ai-path
+        image: local-ai-path
+        imagePullPolicy: Never
+        env:
+        - name: OMP_NUM_THREADS
+          value: "4"
+        - name: MKL_NUM_THREADS
+          value: "4"
+        ports:
+        - containerPort: 8000
