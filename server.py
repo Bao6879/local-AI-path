@@ -27,16 +27,19 @@ CKPT_DIR = "checkpoints"
 # ---------------------------------------------------------------------------
 REGISTRY = {
     # --- completer snapshots (base / pretraining): no template, no stop ---
-    "completer-final": {"file": "ckpt.pt",       "kind": "completer", "label": "Completer — final"},
-    # "completer-s1":  {"file": "ckpt_pre_1.pt", "kind": "completer", "label": "Completer — early"},
+    "completer-v0":  {"file": "trainingCheckpoints/ckpt_pre_step0.pt", "kind": "completer", "label": "Completer — step 0"},
+    "completer-v1":  {"file": "trainingCheckpoints/ckpt_pre_step750.pt", "kind": "completer", "label": "Completer — step 750"},
+    "completer-v2":  {"file": "trainingCheckpoints/ckpt_pre_step3000.pt", "kind": "completer", "label": "Completer — step 3000"},
+    "completer-v3":  {"file": "trainingCheckpoints/ckpt_pre_step13000.pt", "kind": "completer", "label": "Completer — step 13000"},
+    "completer-final": {"file": "trainingCheckpoints/ckpt.pt", "kind": "completer", "label": "Completer — final, 19073 steps"},
     # ... up to ~5; fill in your real pretraining-snapshot filenames
 
     # --- chat snapshots (SFT): Alpaca template + stop on EOT ---
-    "chat-v0": {"file": "ckpt_sft_step0.pt", "kind": "chat",      "label": "Chat — step 0"},
-    "chat-v1": {"file": "ckpt_sft_step25.pt", "kind": "chat",      "label": "Chat — step 25"},
-    "chat-v2": {"file": "ckpt_sft_step100.pt", "kind": "chat",      "label": "Chat — step 100"},
-    "chat-v3": {"file": "ckpt_sft_step700.pt", "kind": "chat",      "label": "Chat — step 700"},
-    "chat-final": {"file": "ckpt_sft_final.pt",   "kind": "chat",      "label": "Chat — final, 2937 steps"},
+    "chat-v0": {"file": "sftCheckpoints/ckpt_sft_step0.pt", "kind": "chat",      "label": "Chat — step 0"},
+    "chat-v1": {"file": "sftCheckpoints/ckpt_sft_step25.pt", "kind": "chat",      "label": "Chat — step 25"},
+    "chat-v2": {"file": "sftCheckpoints/ckpt_sft_step100.pt", "kind": "chat",      "label": "Chat — step 100"},
+    "chat-v3": {"file": "sftCheckpoints/ckpt_sft_step700.pt", "kind": "chat",      "label": "Chat — step 700"},
+    "chat-final": {"file": "sftCheckpoints/ckpt_sft_final.pt",   "kind": "chat",      "label": "Chat — final, 2937 steps"},
     # ... up to ~5; these come out of the Step-2 training loop's checkpoints
 }
 DEFAULT_MODEL = "chat-final"   # default => current behavior; old clients keep working
@@ -48,7 +51,7 @@ DEFAULT_MODEL = "chat-final"   # default => current behavior; old clients keep w
 # like a chatbot (they're the base model), but every code path runs. When the
 # real files are uploaded to the repo, flip this to False — no code change.
 # ---------------------------------------------------------------------------
-SERVE_FALLBACK_ONLY = True
+SERVE_FALLBACK_ONLY = False
 FALLBACK_FILE = "ckpt.pt"
 
 # ---------------------------------------------------------------------------
@@ -131,11 +134,9 @@ class GenerateRequest(BaseModel):
 async def ui():
     return FileResponse("ui.html")
 
-
 @app.get("/models")
 async def list_models():
-    # lets ui.html build the toggle/dropdown from the registry (Step 4 uses this)
-    return [{"id": k, "kind": v["kind"], "label": v["label"]} for k, v in REGISTRY.items()]
+    return [{"id": k, "kind": v["kind"], "label": v["label"], "file": v["file"]} for k, v in REGISTRY.items()]
 
 
 async def token_stream(req):

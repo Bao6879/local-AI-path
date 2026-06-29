@@ -343,8 +343,9 @@ const QUOTES = [
   'Woe to the earth and the sea, because the devil has gone down to you.',
   'The fastest way to get better is to get better.',
 ];
+/* {username} is a placeholder — swap in the real handle here. */
 const GOTERMINAL = {
-  username: '{MaxV16}',
+  username: '{username}',
   disclaimer: 'natural numbers only, 2 digits max (0-99), operations + - * /',
 };
 
@@ -460,17 +461,27 @@ function smooth(curve, alpha){                       // EMA over [step, loss]
   return curve.map(([x, y]) => { prev = prev === null ? y : alpha*y + (1-alpha)*prev; return [x, prev]; });
 }
 function runFor(id){ const m = modelById(id); return m && STATE.meta ? STATE.meta[m.kind] : null; }
-function xField(run){ return run.x_axis === 'tokens' ? 'tokens_seen' : 'step'; }
+function xField(run){ return run.x_axis; }            // x_axis IS the checkpoint field name
+function isStepAxis(run){ return run.x_axis === 'step'; }
 
 function joinCheckpoint(run, id){                    // id -> stats checkpoint entry
   const cps = run.checkpoints || [];
-  let cp = cps.find(c => c.id === id);               // 1) explicit id (preferred)
+  const m = modelById(id);
+  const base = s => (s || '').split('/').pop();      // drop dir prefix before comparing
+
+  // PRIMARY: match on checkpoint filename. The registry file carries a dir
+  // prefix ("sftCheckpoints/…") the stats json doesn't, so compare basenames.
+  // Requires /models to include `file` (see server.py note).
+  if (m && m.file){
+    const b = base(m.file);
+    const cp = cps.find(c => base(c.file) === b);
+    if (cp) return cp;
+  }
+  // fallbacks, in case a future stats file keys by id/tag instead of filename:
+  let cp = cps.find(c => c.id === id);
   if (cp) return cp;
-  const tag = id.replace(/^(chat|completer)-/, ''); // 2) strip kind prefix -> tag
-  cp = cps.find(c => c.tag === tag);
-  if (cp) return cp;
-  const m = modelById(id);                           // 3) match by filename
-  return m ? cps.find(c => c.file === m.file) : null;
+  const tag = id.replace(/^(chat|completer)-/, ''); // "chat-v2" -> "v2"
+  return cps.find(c => c.tag === tag || c.id === tag) || null;
 }
 
 let SCALE = null;                                    // {sx, sy} for current run
@@ -509,8 +520,8 @@ function drawCurve(run){
   pts.forEach((p, i) => { d += (i ? 'L' : 'M') + SCALE.sx(p[0]).toFixed(1) + ' ' + SCALE.sy(p[1]).toFixed(1) + ' '; });
   $('loss-line').setAttribute('d', d.trim());
   $('loss-fill').setAttribute('d', d.trim() + 'L' + PLOT.x1 + ' ' + PLOT.y1 + 'L' + PLOT.x0 + ' ' + PLOT.y1 + 'Z');
-  $('tm-stepmax').textContent = run.x_axis === 'tokens'
-    ? (Math.max(...pts.map(p=>p[0]))/1e6).toFixed(1) + 'M' : Math.max(...pts.map(p=>p[0]));
+  $('tm-stepmax').textContent = isStepAxis(run)
+    ? Math.max(...pts.map(p=>p[0])) : fmtTokens(Math.max(...pts.map(p=>p[0])));
 }
 
 function animateDot(toX){
@@ -535,25 +546,38 @@ function animateNumber(el, to, fmt){
     if (t < 1) requestAnimationFrame(frame);
   })(performance.now());
 }
-const fmtTokens = (n) => n >= 1e6 ? (n/1e6).toFixed(2)+'M' : n >= 1e3 ? (n/1e3).toFixed(1)+'k' : Math.round(n);
+const fmtTokens = (n) => n >= 1e9 ? (n/1e9).toFixed(2)+'B' : n >= 1e6 ? (n/1e6).toFixed(2)+'M' : n >= 1e3 ? (n/1e3).toFixed(1)+'k' : Math.round(n);
+
+function clearStats(id, why){                          // model has no run/checkpoint in /metadata
+  $('loss-line').setAttribute('d', '');
+  $('loss-fill').setAttribute('d', '');
+  $('loss-dot').setAttribute('cx', -20); $('loss-dot-halo').setAttribute('cx', -20);
+  ['stat-loss','stat-ppl','stat-step','stat-tps'].forEach(k => { $(k).textContent = '\u2014'; $(k).dataset.v = 0; });
+  $('tm-modelname').textContent = 'finest-web \u2014 ' + id;
+  $('rail-model').textContent = id;
+  $('tm-specs').textContent = why;
+  STATE.shownKind = null;                              // force a redraw when a model with data is next loaded
+  console.warn('[stats] ' + why + ' :', id);
+}
 
 function renderStats(id, animate){
-  const run = runFor(id), cp = run && joinCheckpoint(run, id), m = modelById(id);
-  if (!run || !cp){ return; }
+  const m = modelById(id), run = runFor(id), cp = run && joinCheckpoint(run, id);
+  if (!run){ clearStats(id, 'no ' + (m ? m.kind : '?') + ' run in /metadata'); return; }
+  if (!cp){ clearStats(id, 'no curve point matches "' + id + '"'); return; }
 
   if (STATE.shownKind !== m.kind){ drawCurve(run); STATE.shownKind = m.kind; if (!animate) STATE.dotX = SCALE.pts[0][0]; }
 
   const xf = xField(run), xVal = cp[xf];
   animate ? animateDot(xVal) : (STATE.dotX = xVal, placeDot(xVal));
 
-  const total = run.x_axis === 'tokens' ? run.total_tokens : run.total_steps;
+  const total = isStepAxis(run) ? run.total_steps : run.total_tokens;
   const pct = total ? Math.round(100 * xVal / total) : 100;
   const set = (el, to, fmt) => animate ? animateNumber($(el), to, fmt) : ($(el).dataset.v = to, $(el).textContent = fmt(to));
 
   set('stat-loss', cp.loss, v => v.toFixed(2));
   set('stat-ppl', Math.exp(cp.loss), v => v.toFixed(1));
-  if (run.x_axis === 'tokens') set('stat-step', xVal, v => fmtTokens(v));
-  else set('stat-step', xVal, v => Math.round(v));
+  if (isStepAxis(run)) set('stat-step', xVal, v => Math.round(v));
+  else set('stat-step', xVal, v => fmtTokens(v));
 
   $('tm-modelname').textContent = 'finest-web \u2014 ' + id;
   $('rail-model').textContent = id;
