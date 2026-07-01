@@ -43,6 +43,9 @@
   --file:#7bb3e0;
   --mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
   --sans:'Segoe UI',system-ui,-apple-system,sans-serif;
+  /* shared fixed height for explorer + terminal screen (keeps them aligned).
+     terminal screen = this minus the 34px titlebar. nudge this one value. */
+  --panel-h:394px;
 }
 
 *{box-sizing:border-box;}
@@ -56,7 +59,7 @@ body{
 }
 
 /* ---------- desktop + window frame ---------- */
-.desktop{max-width:980px;margin:0 auto;}
+.desktop{max-width:1176px;margin:0 auto;}
 .win{border-radius:8px;overflow:hidden;box-shadow:0 18px 50px -16px rgba(0,0,0,.9);}
 .titlebar{
   display:flex;align-items:center;height:34px;padding-left:12px;
@@ -65,7 +68,7 @@ body{
 .titlebar .label{display:flex;align-items:center;gap:8px;}
 .titlebar svg{width:15px;height:15px;}
 
-.lower{display:grid;grid-template-columns:236px minmax(0,1fr);gap:13px;margin-top:13px;}
+.lower{display:grid;grid-template-columns:283px minmax(0,1fr);gap:13px;margin-top:13px;align-items:start;}
 
 /* ---------- icons ---------- */
 .ic{width:16px;height:16px;display:inline-block;vertical-align:middle;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;}
@@ -100,12 +103,10 @@ body{
 /* ============================================================
    FILE EXPLORER
    ============================================================ */
-.explorer{background:var(--ex-bg);display:flex;flex-direction:column;}
+.explorer{background:var(--ex-bg);display:flex;flex-direction:column;height:var(--panel-h);}
 .explorer .titlebar{background:var(--win-title-ex);}
 .explorer .titlebar svg{color:var(--folder);}
 .ex-cmdbar{display:flex;align-items:center;gap:8px;background:var(--ex-bar);padding:7px 10px;border-bottom:1px solid var(--win-line);}
-.ex-cmdbar svg{width:15px;height:15px;color:#cfcfcf;}
-.ex-cmdbar svg.off{color:#666;}
 .crumb{flex:1;background:#1d1d1d;border-radius:4px;padding:4px 9px;font-size:11.5px;color:#cfcfcf;display:flex;align-items:center;gap:5px;min-width:0;}
 .crumb svg{width:13px;height:13px;color:var(--folder);flex:none;}
 .crumb .sep{color:#777;}
@@ -131,7 +132,7 @@ body{
 .screen{
   position:relative;flex:1;overflow-y:auto;
   background:radial-gradient(ellipse 130% 120% at 50% 30%, #0a1410 0%, #060a08 72%, #020403 100%);
-  padding:13px 16px;min-height:300px;
+  padding:13px 16px;height:calc(var(--panel-h) - 34px);
   font-family:var(--mono);font-size:14px;line-height:1.62;
 }
 /* static scanlines (faint) */
@@ -139,13 +140,7 @@ body{
   content:"";position:absolute;inset:0;pointer-events:none;z-index:5;
   background:repeating-linear-gradient(0deg, rgba(0,0,0,0) 0, rgba(0,0,0,0) 2px, rgba(0,0,0,.10) 2px, rgba(0,0,0,.10) 3px);
 }
-/* rolling sweep */
-.screen::after{
-  content:"";position:absolute;left:0;right:0;height:46px;top:-46px;pointer-events:none;z-index:6;
-  background:linear-gradient(rgba(125,255,180,.05), rgba(125,255,180,0));
-  animation:roll 7s linear infinite;
-}
-@keyframes roll{0%{top:-46px}100%{top:100%}}
+/* rolling sweep removed */
 .crt{position:relative;z-index:4;animation:flicker 3.4s infinite steps(40);}
 @keyframes flicker{0%{opacity:1}8%{opacity:.9}9%{opacity:1}72%{opacity:.93}73%{opacity:1}100%{opacity:1}}
 
@@ -180,15 +175,14 @@ body{
   .lower{display:flex;flex:1;margin-top:0;}
   .terminal{flex:1;border-radius:0;}
   .terminal .win,.terminal{box-shadow:none;}
-  .screen{min-height:0;}
+  .screen{min-height:0;height:auto;}
 }
 
 /* ---------- accessibility ---------- */
 .frow:focus-visible,.rcard:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;}
 .screen:focus-visible{outline:1px solid var(--crt-dim);}
 @media (prefers-reduced-motion:reduce){
-  .crt,.screen::after,.cursor,.live-dot{animation:none;}
-  .screen::after{display:none;}
+  .crt,.cursor,.live-dot{animation:none;}
 }
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0;}
 </style>
@@ -258,9 +252,6 @@ body{
     <section class="win explorer" aria-label="Model Explorer — checkpoint browser">
       <div class="titlebar"><span class="label"><svg class="ic"><use href="#i-folder"/></svg>Model Explorer</span></div>
       <div class="ex-cmdbar">
-        <svg class="ic"><use href="#i-left"/></svg>
-        <svg class="ic off"><use href="#i-right"/></svg>
-        <svg class="ic"><use href="#i-up"/></svg>
         <div class="crumb" id="crumb"><svg class="ic"><use href="#i-folder"/></svg>This PC <span class="sep">&rsaquo;</span> models <span class="sep">&rsaquo;</span> sft</div>
       </div>
       <div class="ex-colhead"><span>Name</span><span class="size">Size</span></div>
@@ -336,16 +327,23 @@ const DIR_KIND  = { pretraining: 'completer', sft: 'chat' };
 const DIRS      = ['pretraining', 'sft'];
 const PARAMS    = { max_tokens: 100, temperature: 0.8, topk: 50 };
 const PARAM_RANGE = { max_tokens: [1, 500], temperature: [0.1, 2.0], topk: [1, 200] };
-const COMMANDS  = ['/help','/ls','/cd','/load','/clear','/goTerminal','/quote'];
+const COMMANDS  = ['/help','/ls','/cd','/load','/clear','/goTerminal','/quote','/cat'];
 const REDUCED   = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 const QUOTES = [
   'Woe to the earth and the sea, because the devil has gone down to you.',
   'The fastest way to get better is to get better.',
 ];
+/* author's note — surfaced by /cat readme.txt. paragraphs wrap on their own. */
+const README = [
+  "It's me, the author of the project. If you found this file, you read the other readme, so I won't bore you with more technical details.",
+  "I picked green cuz it was easy on the eyes, mostly. Also it gave off hacker vibes, which is always cool, even though powershell should be blue. I debated going with the black and white style of bash, but I'm a Windows user, so no. Yes, I know Linux is superior in nearly every way for coders, but I prefer convenience.",
+  "I thought about making the model bigger, but it didnt really serve my goals. I MIGHT go back to this, train a 1 or 2 billion model, that'd be dramatically smarter than this one, I think. And the reason why I could train it was that I borrowed a 5090. Couldn't run on my laptop, so I borrowed from a friend. Suppose I could up it to H100s on the cloud, but that might be too much.",
+  "It's been fun though, learning about this, learning LLMs were really just a whole bunch of math. Coding it? Eh, not so much, but understanding it was great.",
+];
 /* {username} is a placeholder — swap in the real handle here. */
 const GOTERMINAL = {
-  username: '{username}',
+  username: '{MaxV16}',
   disclaimer: 'natural numbers only, 2 digits max (0-99), operations + - * /',
 };
 
@@ -390,7 +388,7 @@ function prefixHTML(){
     : '<span class="g">PS</span>&nbsp;<span class="path">C:\\models' + (STATE.cwd ? '\\' + STATE.cwd : '') + '</span><span class="g">&gt;</span>&nbsp;';
 }
 function renderPrompt(){ $('prompt-prefix').innerHTML = prefixHTML(); }
-function setCmdline(v){ cmdline.textContent = v; }
+function setCmdline(v){ cmdline.textContent = v; cmdline.className = (v.trim()[0] === '/') ? 'cmd' : 'usr'; }
 
 /* ============================================================
    data fetch
@@ -650,6 +648,12 @@ async function streamGenerate(prompt){
    ============================================================ */
 function printQuote(){ print('<span class="gb">' + esc(QUOTES[Math.floor(Math.random()*QUOTES.length)]) + '</span>'); blank(); }
 
+function printReadme(){
+  print('  readme.txt', 'gb');
+  blank();
+  README.forEach(p => { print('  ' + esc(p), 'g'); blank(); });
+}
+
 function enterCalc(){
   STATE.mode = 'calc';
   print('<span class="gb">  goTerminal  v1.0</span>');
@@ -740,7 +744,13 @@ async function dispatch(raw){
       if (!modelById(args[0])){ print('  load: unknown model: ' + esc(args[0]), 'gd'); break; }
       await loadModel(args[0]); break;
     }
-    default: print('  unknown command: ' + esc(cmd) + '  (try /help)', 'gd');
+    case '/cat': {
+      if (args[0] === 'readme.txt'){ printReadme(); }
+      else if (!args[0]){ print('  cat : no file specified', 'gd'); }
+      else { print('  ' + esc(args[0]) + ' : not recognized.', 'gd'); }
+      break;
+    }
+    default: print('  ' + esc(cmd.replace(/^\//, '')) + ' : not recognized as a function or cmdlet.', 'gd');
   }
 }
 
@@ -755,9 +765,10 @@ function complete(){
   else if (parts[0] === '/cd') pool = DIRS.concat(['..']).map(d => '/cd ' + d);
   else if (parts[0] === '/load') pool = modelsInDir(STATE.cwd || 'sft').map(m => '/load ' + m.id);
   else if (parts[0] === '/set') pool = Object.keys(PARAMS).map(p => '/set ' + p);
+  else if (parts[0] === '/cat') pool = ['/cat readme.txt'];
   else return;
 
-  const prefix = parts[0] === '/cd' || parts[0] === '/load' || parts[0] === '/set'
+  const prefix = parts[0] === '/cd' || parts[0] === '/load' || parts[0] === '/set' || parts[0] === '/cat'
     ? parts[0] + ' ' + (parts[1] || '') : v;
   const hits = pool.filter(c => c.startsWith(prefix));
   if (hits.length === 1){ input.value = hits[0] + ' '; setCmdline(input.value); }
@@ -773,7 +784,8 @@ function complete(){
    ============================================================ */
 function submitLine(){
   const v = input.value;
-  print(prefixHTML() + '<span class="usr">' + esc(v) + '</span>');
+  const cls = v.trim()[0] === '/' ? 'cmd' : 'usr';
+  print(prefixHTML() + '<span class="' + cls + '">' + esc(v) + '</span>');
   input.value = ''; setCmdline('');
   dispatch(v);
 }
